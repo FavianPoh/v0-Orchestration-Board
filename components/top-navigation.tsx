@@ -7,10 +7,14 @@ import { BarChart3, Home, LayoutDashboard, PlayCircle, Settings, Sliders, Menu, 
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useModelState } from "@/context/model-state-context"
 
 export function TopNavigation() {
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  const { getRunId } = useModelState()
+  const runId = getRunId()
 
   const isActive = (path: string) => {
     return pathname === path
@@ -114,6 +118,11 @@ export function TopNavigation() {
         </Tabs>
 
         <div className="flex items-center gap-2">
+          {runId && (
+            <div className="hidden md:flex items-center mr-2">
+              <span className="text-sm font-medium bg-blue-50 text-blue-700 px-2 py-1 rounded">Run #{runId}</span>
+            </div>
+          )}
           <Link href="/settings">
             <Button variant="ghost" size="icon">
               <Settings className="h-5 w-5" />

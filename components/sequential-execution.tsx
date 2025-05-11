@@ -192,7 +192,7 @@ export function SequentialExecution() {
     const isNext =
       !isPreviousRunning &&
       model.status === "idle" &&
-      executionSequence.slice(0, index).every((m) => m.status === "completed")
+      executionSequence.slice(0, index).every((m) => m.status === "completed" || !m.enabled || m.status === "disabled")
 
     // Check if this model is paused at a breakpoint
     const isPausedAtBreakpoint = model.status === "completed" && model.breakpoint && getPausedOnModel() === model.id

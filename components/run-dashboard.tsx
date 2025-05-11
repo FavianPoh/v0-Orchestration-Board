@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -18,34 +17,15 @@ import {
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Play,
-  Pause,
-  SkipForward,
-  RefreshCw,
-  Clock,
-  AlertCircle,
-  CheckCircle,
-  ChevronRight,
-  ChevronDown,
-  Info,
-  Settings,
-  List,
-  AlertTriangle,
-  Layers,
-  CornerRightDown,
-  Eye,
-  ArrowRight,
-  BarChartIcon,
-  FileText,
-  ExternalLink,
-  Zap,
-  Bug,
-} from "lucide-react"
+import { Play, Pause, SkipForward, RefreshCw, Clock, AlertCircle, CheckCircle, Info, Settings, Layers, Eye, ArrowRight, BarChartIcon, FileText, ExternalLink, Zap, Bug } from 'lucide-react'
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { LineChart, BarChart } from "@/components/ui/chart"
+import { EnhancedExecutionSequence } from "./enhanced-execution-sequence"
+import { RunCompletionOptions } from "./run-completion-options"
+import { ModelExecutionDashboard } from "./model-execution-dashboard"
+import { ModelRunTimeline } from "./model-run-timeline"
 
 export function RunDashboard() {
   // Add these imports at the top of the file to access the run ID functions
@@ -81,6 +61,8 @@ export function RunDashboard() {
     getIterationCount,
     incrementIterationCount,
     debugAllModelsState,
+    verifyRunCompletionStatus,
+    isModelFrozen,
   } = useModelState()
 
   const router = useRouter()
@@ -90,6 +72,7 @@ export function RunDashboard() {
   const [moduleDialogOpen, setModuleDialogOpen] = useState(false)
   const [selectedModule, setSelectedModule] = useState(null)
   const [selectedModelId, setSelectedModelId] = useState(null)
+  // Single source of truth for parallelExecution
   const [parallelExecution, setParallelExecution] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0) // For forcing re-renders
   const [pausedModelData, setPausedModelData] = useState(null) // Store paused model data for the breakpoint dialog
@@ -106,18 +89,14 @@ export function RunDashboard() {
   const pausedOnModel = getPausedOnModel()
   const failedModel = getFailedModel()
 
-  // Set up a refresh interval when simulation is running
-  useEffect(() => {
-    let intervalId
-    if (running) {
-      intervalId = setInterval(() => {
-        setRefreshKey((prev) => prev + 1)
-      }, 500)
-    }
-    return () => {
-      if (intervalId) clearInterval(intervalId)
-    }
-  }, [running])
+  // Toggle parallel execution mode - single function to handle both toggles
+  const toggleParallelExecution = () => {
+    setParallelExecution(!parallelExecution)
+    toast({
+      title: `${!parallelExecution ? "Parallel" : "Sequential"} execution enabled`,
+      description: `Models will now run in ${!parallelExecution ? "parallel" : "sequential"} mode.`,
+    })
+  }
 
   // Group models by status
   const pendingModels = sequence.filter((model) => model.status === "idle")
@@ -142,7 +121,7 @@ export function RunDashboard() {
 
   // Auto-expand paused or failed models
   useEffect(() => {
-    if (pausedOnModel) {
+    if (pausedOnModel && !breakpointInfoOpen) {
       console.log(`Auto-expanding paused model: ${pausedOnModel}`)
       setExpandedModels((prev) => ({
         ...prev,
@@ -165,9 +144,12 @@ export function RunDashboard() {
         setPausedModelData(model)
 
         // Auto-open breakpoint info dialog after a short delay to ensure data is loaded
-        setTimeout(() => {
-          setBreakpointInfoOpen(true)
-        }, 200)
+        // Only open if not already open
+        if (!breakpointInfoOpen) {
+          setTimeout(() => {
+            setBreakpointInfoOpen(true)
+          }, 200)
+        }
       }
     }
     if (failedModel) {
@@ -187,7 +169,7 @@ export function RunDashboard() {
         setSelectedModelId(failedModel)
       }
     }
-  }, [pausedOnModel, failedModel, getModelById])
+  }, [pausedOnModel, failedModel, getModelById, breakpointInfoOpen])
 
   // Toggle expanded state for a model
   const toggleExpanded = (modelId) => {
@@ -229,23 +211,33 @@ export function RunDashboard() {
     if (!modelId) return
 
     console.log(`Continuing after breakpoint on model: ${modelId}`)
-    continueAfterBreakpoint(modelId)
+
+    // Close the dialog first to prevent multiple dialogs
     setBreakpointInfoOpen(false)
 
-    toast({
-      title: "Continuing execution",
-      description: `Execution will continue from model ${getModelById(modelId)?.name || modelId}`,
-    })
-
-    // Force refresh to update UI
+    // Wait a moment to ensure UI updates before continuing
     setTimeout(() => {
+      continueAfterBreakpoint(modelId)
+
+      toast({
+        title: "Continuing execution",
+        description: `Execution will continue from model ${getModelById(modelId)?.name || modelId}`,
+      })
+
+      // Force refresh to update UI
       setRefreshKey((prev) => prev + 1)
-    }, 200)
+    }, 300)
   }
 
   // Handle force complete all
   const handleForceComplete = () => {
     forceCompleteAllRunning()
+
+    // After forcing completion, check if the run should be completed
+    setTimeout(() => {
+      verifyRunCompletionStatus()
+    }, 100)
+
     toast({
       title: "Force completed all running models",
       description: "All running models and modules have been marked as completed.",
@@ -254,18 +246,23 @@ export function RunDashboard() {
 
   // Handle model selection for details view
   const handleSelectModel = (model) => {
-    setSelectedModel(model)
-    setSelectedModelId(model.id)
+    // Get the latest model data directly from modelGroups
+    const latestModel = modelGroups.find((m) => m.id === model.id)
 
-    // Auto-expand the selected model
-    setExpandedModels((prev) => ({
-      ...prev,
-      [model.id]: true,
-    }))
+    if (latestModel) {
+      setSelectedModel(latestModel)
+      setSelectedModelId(latestModel.id)
 
-    // Scroll to the model in the sequence view if it's in the timeline
-    if (modelRefs.current[model.id] && sequenceRef.current) {
-      modelRefs.current[model.id].scrollIntoView({ behavior: "smooth", block: "center" })
+      // Auto-expand the selected model
+      setExpandedModels((prev) => ({
+        ...prev,
+        [latestModel.id]: true,
+      }))
+
+      // Scroll to the model in the sequence view if it's in the timeline
+      if (modelRefs.current[latestModel.id] && sequenceRef.current) {
+        modelRefs.current[latestModel.id].scrollIntoView({ behavior: "smooth", block: "center" })
+      }
     }
   }
 
@@ -364,6 +361,12 @@ export function RunDashboard() {
             <AlertCircle className="w-3 h-3 mr-1" /> Failed
           </Badge>
         )
+      case "blocked":
+        return (
+          <Badge className="bg-orange-100 text-orange-600">
+            <Clock className="w-3 h-3 mr-1" /> Waiting for Dependency
+          </Badge>
+        )
       case "idle":
         return (
           <Badge className="bg-gray-100 text-gray-600">
@@ -377,15 +380,6 @@ export function RunDashboard() {
           </Badge>
         )
     }
-  }
-
-  // Toggle parallel execution mode
-  const toggleParallelExecution = () => {
-    setParallelExecution(!parallelExecution)
-    toast({
-      title: `${!parallelExecution ? "Parallel" : "Sequential"} execution enabled`,
-      description: `Models will now run in ${!parallelExecution ? "parallel" : "sequential"} mode.`,
-    })
   }
 
   // Check if a model is currently running
@@ -515,689 +509,116 @@ export function RunDashboard() {
 
   const currentExecutionRef = useRef({ pausedModels: new Set() })
 
+  // Add a useEffect to force refresh both views when a model is selected
+  // This ensures that when a model is clicked in the timeline, both views show consistent data
+
+  // Add this after the other useEffect hooks
+  useEffect(() => {
+    // Force refresh both views when a model is selected to ensure consistency
+    if (selectedModelId) {
+      // Force refresh the execution sequence
+      setRefreshKey((prev) => prev + 1)
+
+      // Ensure we're using the latest model data
+      const latestModel = modelGroups.find((m) => m.id === selectedModelId)
+      if (latestModel) {
+        setSelectedModel(latestModel)
+      }
+    }
+  }, [selectedModelId, modelGroups])
+
+  // Check for completion when the component mounts or when the sequence changes
+  useEffect(() => {
+    // Only run this check if the simulation is running
+    if (running) {
+      const pendingCount = sequence.filter((model) => model.status === "idle").length
+      const runningCount = sequence.filter((model) => model.status === "running").length
+      const completedCount = sequence.filter((model) => model.status === "completed").length
+
+      // If all models are completed but the run is still marked as running, verify completion status
+      if (pendingCount === 0 && runningCount === 0 && completedCount === sequence.length) {
+        console.log("Initial check: All models appear to be completed, verifying run completion status")
+        verifyRunCompletionStatus()
+      }
+    }
+  }, [running, sequence, verifyRunCompletionStatus])
+
+  // Add a useEffect to verify run completion status when component mounts or updates
+
+  // Find the last useEffect in the file and add this new useEffect after it:
+
+  // Add this after the other useEffect hooks
+  useEffect(() => {
+    // Check if all models are completed but the run is still marked as running
+    if (running && sequence.length > 0) {
+      const allCompleted = sequence.every(
+        (model) =>
+          model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
+      )
+
+      if (allCompleted) {
+        console.log("Dashboard detected all models completed but run still marked as running")
+        // Force verification of run completion status
+        verifyRunCompletionStatus()
+      }
+    }
+  }, [running, sequence, verifyRunCompletionStatus, isModelFrozen])
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Left Column - Run Controls and Timeline (narrower) */}
-      <div className="lg:col-span-4 space-y-6">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center">
-              <Play className="mr-2 h-5 w-5" />
-              Run Controls
-            </CardTitle>
-            {/* Run Status Info */}
-            <div className="flex items-center bg-blue-50 p-2 rounded-md border border-blue-200">
-              <div className="flex-1">
-                <h4 className="text-sm font-medium flex items-center">
-                  {running ? (
-                    paused ? (
-                      <>
-                        <Pause className="w-3 h-3 mr-1 text-yellow-600" /> Run Paused
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-3 h-3 mr-1 animate-spin text-blue-600" /> Run in Progress
-                      </>
-                    )
-                  ) : getLastCompletedRunId() ? (
-                    <>
-                      <CheckCircle className="w-3 h-3 mr-1 text-green-600" /> Last Run Completed
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="w-3 h-3 mr-1 text-gray-600" /> Ready to Run
-                    </>
-                  )}
-                </h4>
-                <p className="text-xs text-muted-foreground">
-                  {running
-                    ? `${completedModels.length} of ${sequence.length} models completed`
-                    : getLastCompletedRunId()
-                      ? `Last run: #${getLastCompletedRunId().substring(getLastCompletedRunId().length - 4)}`
-                      : `${sequence.length} models in sequence`}
-                </p>
-              </div>
-              <div className="flex flex-col items-end">
-                <Badge variant={paused ? "outline" : "secondary"} className="mb-1">
-                  {getRunId()
-                    ? `Run #${getRunId().substring(getRunId().length - 4)}`
-                    : getLastCompletedRunId()
-                      ? `Last: #${getLastCompletedRunId().substring(getLastCompletedRunId().length - 4)}`
-                      : "New Run"}
-                </Badge>
-                {getIterationCount() > 0 && (
-                  <span className="text-xs text-muted-foreground">Iteration {getIterationCount() + 1}</span>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex flex-col space-y-2">
-                <Button onClick={handleRunAll} disabled={running && !paused} className="w-full">
-                  <Play className="mr-2 h-4 w-4" />
-                  {running && !paused ? "Run in Progress..." : "Run All Models"}
-                </Button>
-
-                {running && (
-                  <Button onClick={handlePauseResume} variant="outline" className="w-full">
-                    {paused ? (
-                      <>
-                        <Play className="mr-2 h-4 w-4" />
-                        Resume Execution
-                      </>
-                    ) : (
-                      <>
-                        <Pause className="mr-2 h-4 w-4" />
-                        Pause Execution
-                      </>
-                    )}
-                  </Button>
-                )}
-
-                <Button onClick={handleForceComplete} variant="outline" disabled={!running} className="w-full">
-                  <SkipForward className="mr-2 h-4 w-4" />
-                  Force Complete All
-                </Button>
-
-                <Button onClick={resetOutputs} variant="outline" className="w-full">
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Reset All
-                </Button>
-                <Button
-                  onClick={() => {
-                    debugAllModelsState()
-                    toast({
-                      title: "Debug info logged",
-                      description: "Check the console for detailed model state information",
-                    })
-                  }}
-                  variant="outline"
-                  className="w-full"
-                >
-                  <Bug className="mr-2 h-4 w-4" />
-                  Debug Model States
-                </Button>
-              </div>
-
-              <div className="pt-2 border-t">
-                <h3 className="text-sm font-medium mb-2">Execution Settings</h3>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Parallel Execution</span>
-                    <Switch
-                      checked={parallelExecution}
-                      onCheckedChange={toggleParallelExecution}
-                      aria-label="Toggle parallel execution"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Stop on Error</span>
-                    <Badge variant="outline">Disabled</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">Auto-retry</span>
-                    <Badge variant="outline">3 attempts</Badge>
-                  </div>
-                </div>
-              </div>
-
-              {/* Enhanced Breakpoint Information */}
-              {pausedOnModel && (
-                <div className="pt-2 border-t">
-                  <Alert variant="warning" className="bg-yellow-50 border-yellow-200">
-                    <AlertCircle className="h-4 w-4 text-yellow-600" />
-                    <AlertTitle className="text-yellow-700 flex items-center">
-                      <Pause className="w-4 h-4 mr-1" /> Breakpoint Hit
-                    </AlertTitle>
-                    <AlertDescription className="text-yellow-600">
-                      <p className="mb-2">
-                        Execution paused after model:{" "}
-                        <span className="font-semibold">{getModelById(pausedOnModel)?.name || pausedOnModel}</span>
-                      </p>
-                      <div className="flex gap-2 mt-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="bg-white"
-                          onClick={() => setBreakpointInfoOpen(true)}
-                        >
-                          <Eye className="w-3 h-3 mr-1" /> Review
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="bg-white"
-                          onClick={() => handleContinueAfterBreakpoint(pausedOnModel)}
-                        >
-                          <Play className="w-3 h-3 mr-1" /> Continue
-                        </Button>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
-
-              {failedModel && (
-                <div className="pt-2 border-t">
-                  <Alert variant="destructive" className="bg-red-50 border-red-200">
-                    <AlertCircle className="h-4 w-4 text-red-600" />
-                    <AlertTitle className="text-red-700">Execution Failed</AlertTitle>
-                    <AlertDescription className="text-red-600">
-                      Failed at model: {getModelById(failedModel)?.name || failedModel}
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center">
-              <Clock className="mr-2 h-5 w-5" />
-              Model Run Timeline
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[500px] px-4">
-              <div className="space-y-1 relative pl-6 border-l border-muted">
-                {sequence.map((model, index) => {
-                  const isRunning = isModelRunning(model.id)
-                  const isPaused = isModelPaused(model.id)
-                  const isFailed = isModelFailed(model.id)
-                  const { hasDependencies, hasDependents } = getDependencyInfo(model.id)
-
-                  return (
-                    <div
-                      key={model.id}
-                      className={`mb-3 relative cursor-pointer hover:bg-gray-50 rounded-md p-2 
-                        ${selectedModelId === model.id ? "bg-gray-50 border border-blue-300" : ""}
-                        ${model.id.startsWith("test-model-") ? "border-l-4 border-blue-400" : ""}
-                        ${isRunning ? "border-2 border-blue-500 bg-blue-50" : ""}
-                        ${isPaused ? "border-2 border-yellow-500 bg-yellow-50" : ""}
-                        ${isFailed ? "border-2 border-red-500 bg-red-50" : ""}
-                        ${model.breakpoint ? "border-l-4 border-red-400" : ""}`}
-                      onClick={() => handleSelectModel(model)}
-                      ref={(el) => (modelRefs.current[model.id] = el)}
-                    >
-                      <div
-                        className={`absolute -left-3 w-5 h-5 rounded-full flex items-center justify-center
-                          ${
-                            model.status === "completed"
-                              ? "bg-green-100 text-green-600"
-                              : isRunning
-                                ? "bg-blue-100 text-blue-600"
-                                : isPaused
-                                  ? "bg-yellow-100 text-yellow-600"
-                                  : isFailed
-                                    ? "bg-red-100 text-red-600"
-                                    : "bg-gray-100 text-gray-600"
-                          }`}
-                      >
-                        {model.status === "completed" ? (
-                          <CheckCircle className="w-3 h-3" />
-                        ) : isRunning ? (
-                          <RefreshCw className="w-3 h-3 animate-spin" />
-                        ) : isPaused ? (
-                          <Pause className="w-3 h-3" />
-                        ) : isFailed ? (
-                          <AlertCircle className="w-3 h-3" />
-                        ) : (
-                          <span className="text-xs">{index + 1}</span>
-                        )}
-                      </div>
-                      <div className="pl-2">
-                        <div className="flex items-center justify-between">
-                          <span className={`font-medium ${model.id.startsWith("test-model-") ? "text-blue-700" : ""}`}>
-                            {model.name}
-                            {model.breakpoint && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-red-50 text-red-600 border-red-200">
-                                <AlertTriangle className="w-3 h-3 mr-1" /> Breakpoint
-                              </Badge>
-                            )}
-                          </span>
-                          {getStatusBadge(model.status, model.id)}
-                        </div>
-                        {model.startTime && (
-                          <p className="text-xs text-muted-foreground">
-                            Started: {new Date(model.startTime).toLocaleTimeString()}
-                          </p>
-                        )}
-                        {model.endTime && (
-                          <p className="text-xs text-muted-foreground">
-                            Completed: {new Date(model.endTime).toLocaleTimeString()}
-                            {model.startTime && (
-                              <span className="ml-2">({formatDuration(model.startTime, model.endTime)})</span>
-                            )}
-                          </p>
-                        )}
-                        {model.status === "running" && <Progress value={model.progress} className="h-1 mt-2" />}
-
-                        {/* Dependencies indicator */}
-                        {(hasDependencies || hasDependents) && (
-                          <div className="flex gap-2 mt-1">
-                            {hasDependencies && (
-                              <Badge variant="outline" className="text-xs">
-                                <CornerRightDown className="w-3 h-3 mr-1" /> Dependencies
-                              </Badge>
-                            )}
-                            {hasDependents && (
-                              <Badge variant="outline" className="text-xs">
-                                <CornerRightDown className="w-3 h-3 mr-1 rotate-180" /> Dependents
-                              </Badge>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Control buttons */}
-                        <div className="flex mt-2 space-x-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleRunModel(model.id)
-                            }}
-                          >
-                            <Play className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (isRunning) {
-                                pauseExecution()
-                              } else if (isPaused) {
-                                handleContinueAfterBreakpoint(model.id)
-                              }
-                            }}
-                          >
-                            {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={`h-7 px-2 ${model.breakpoint ? "text-red-500" : ""}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleToggleBreakpoint(model.id)
-                            }}
-                          >
-                            <AlertTriangle className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Right Column - Model Details and Drilldowns (wider) */}
-      <div className="lg:col-span-8 space-y-6">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-4 gap-4">
+    <div className="container mx-auto p-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column - Model Run Timeline (narrower) */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Model Run Timeline */}
           <Card>
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <div className="text-blue-600 text-2xl font-bold">{runningModelsList.length}</div>
-              <div className="text-sm text-muted-foreground">Running</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <div className="text-amber-600 text-2xl font-bold">{pendingModels.length}</div>
-              <div className="text-sm text-muted-foreground">Pending</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <div className="text-green-600 text-2xl font-bold">{completedModels.length}</div>
-              <div className="text-sm text-muted-foreground">Completed</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex flex-col items-center justify-center">
-              <div className="text-red-600 text-2xl font-bold">{failedModels.length}</div>
-              <div className="text-sm text-muted-foreground">Failed</div>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center">
+                <Clock className="mr-2 h-5 w-5" />
+                Model Run Timeline
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <ModelRunTimeline parallelExecution={parallelExecution} />
             </CardContent>
           </Card>
         </div>
 
-        {/* Execution Sequence with Drilldowns */}
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg flex items-center">
-                <List className="mr-2 h-5 w-5" />
-                Execution Sequence
-              </CardTitle>
-              <Button variant="outline" size="sm" onClick={toggleParallelExecution} className="flex items-center">
-                <Layers className="mr-1 h-4 w-4" />
-                {parallelExecution ? "Parallel Mode" : "Sequential Mode"}
-              </Button>
-            </div>
-            <CardDescription>Click on a model to view details and modules</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[500px]" ref={sequenceRef}>
-              <div className="p-4 space-y-4">
-                {sequence.map((model, index) => {
-                  const isRunning = isModelRunning(model.id)
-                  const isPaused = isModelPaused(model.id)
-                  const isFailed = isModelFailed(model.id)
-                  const { dependencies, dependents } = getDependencyInfo(model.id)
+        {/* Right Column - Model Details and Drilldowns (wider) */}
+        <div className="lg:col-span-9 space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            <Card>
+              <CardContent className="p-4 flex flex-col items-center justify-center">
+                <div className="text-blue-600 text-2xl font-bold">{runningModelsList.length}</div>
+                <div className="text-sm text-muted-foreground">Running</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex flex-col items-center justify-center">
+                <div className="text-amber-600 text-2xl font-bold">{pendingModels.length}</div>
+                <div className="text-sm text-muted-foreground">Pending</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex flex-col items-center justify-center">
+                <div className="text-green-600 text-2xl font-bold">{completedModels.length}</div>
+                <div className="text-sm text-muted-foreground">Completed</div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 flex flex-col items-center justify-center">
+                <div className="text-red-600 text-2xl font-bold">{failedModels.length}</div>
+                <div className="text-sm text-muted-foreground">Failed</div>
+              </CardContent>
+            </Card>
+          </div>
 
-                  return (
-                    <Collapsible
-                      key={model.id}
-                      open={expandedModels[model.id] || selectedModelId === model.id || isPaused || isFailed}
-                      onOpenChange={() => toggleExpanded(model.id)}
-                    >
-                      <div
-                        className={`p-3 rounded-md border 
-                          ${selectedModelId === model.id ? "border-blue-400 bg-blue-50" : "border-gray-200"}
-                          ${model.id.startsWith("test-model-") ? "border-blue-300 bg-blue-50" : ""}
-                          ${isRunning ? "border-2 border-blue-500 bg-blue-50" : ""}
-                          ${isPaused ? "border-2 border-yellow-500 bg-yellow-50" : ""}
-                          ${isFailed ? "border-2 border-red-500 bg-red-50" : ""}
-                          ${model.breakpoint ? "border-l-4 border-red-400" : ""}`}
-                        onClick={() => handleSelectModel(model)}
-                      >
-                        <CollapsibleTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-between cursor-pointer">
-                            <div className="flex items-center">
-                              <span className="bg-gray-200 text-gray-700 w-6 h-6 rounded-full flex items-center justify-center text-xs mr-2">
-                                {index + 1}
-                              </span>
-                              <div>
-                                <span
-                                  className={`font-medium ${model.id.startsWith("test-model-") ? "text-blue-700" : ""}`}
-                                >
-                                  {model.name}
-                                  {model.breakpoint && (
-                                    <Badge
-                                      variant="outline"
-                                      className="ml-2 text-xs bg-red-50 text-red-600 border-red-200"
-                                    >
-                                      <AlertTriangle className="w-3 h-3 mr-1" /> Breakpoint
-                                    </Badge>
-                                  )}
-                                </span>
-                                {model.status === "running" && (
-                                  <Progress value={model.progress} className="h-1 mt-1 w-40" />
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-center">
-                              {getStatusBadge(model.status, model.id)}
-                              <Button variant="ghost" size="sm" className="ml-1">
-                                {expandedModels[model.id] || selectedModelId === model.id || isPaused || isFailed ? (
-                                  <ChevronDown className="h-4 w-4" />
-                                ) : (
-                                  <ChevronRight className="h-4 w-4" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-                        </CollapsibleTrigger>
-
-                        <CollapsibleContent onClick={(e) => e.stopPropagation()}>
-                          <div className="mt-3 pt-3 border-t">
-                            {/* Model Details */}
-                            <div className="mb-3">
-                              <div className="grid grid-cols-2 gap-2 mb-2">
-                                <div className="text-sm">
-                                  <span className="text-muted-foreground">Status:</span>{" "}
-                                  {model.status.charAt(0).toUpperCase() + model.status.slice(1)}
-                                  {isPaused && " (Paused)"}
-                                  {isFailed && " (Failed)"}
-                                </div>
-                                <div className="text-sm">
-                                  <span className="text-muted-foreground">Duration:</span>{" "}
-                                  {model.startTime && model.endTime
-                                    ? formatDuration(model.startTime, model.endTime)
-                                    : "—"}
-                                </div>
-                                {model.description && (
-                                  <div className="text-sm col-span-2">
-                                    <span className="text-muted-foreground">Description:</span> {model.description}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Dependencies and Dependents */}
-                              {(dependencies.length > 0 || dependents.length > 0) && (
-                                <div className="mb-3 grid grid-cols-2 gap-2">
-                                  {dependencies.length > 0 && (
-                                    <div>
-                                      <h4 className="text-sm font-medium mb-1">Dependencies</h4>
-                                      <div className="flex flex-wrap gap-1">
-                                        {dependencies.map((depId) => {
-                                          const depModel = getModelById(depId)
-                                          return (
-                                            <Badge
-                                              key={depId}
-                                              variant="outline"
-                                              className={`text-xs cursor-pointer ${
-                                                depModel?.status === "completed"
-                                                  ? "bg-green-50"
-                                                  : depModel?.status === "running"
-                                                    ? "bg-blue-50"
-                                                    : depModel?.status === "failed"
-                                                      ? "bg-red-50"
-                                                      : ""
-                                              }`}
-                                              onClick={() => {
-                                                const depModel = getModelById(depId)
-                                                if (depModel) handleSelectModel(depModel)
-                                              }}
-                                            >
-                                              {depModel?.name || depId}
-                                              {depModel?.breakpoint && (
-                                                <AlertTriangle className="w-3 h-3 ml-1 text-red-500" />
-                                              )}
-                                            </Badge>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {dependents.length > 0 && (
-                                    <div>
-                                      <h4 className="text-sm font-medium mb-1">Dependents</h4>
-                                      <div className="flex flex-wrap gap-1">
-                                        {dependents.map((depId) => {
-                                          const depModel = getModelById(depId)
-                                          return (
-                                            <Badge
-                                              key={depId}
-                                              variant="outline"
-                                              className="text-xs cursor-pointer"
-                                              onClick={() => {
-                                                const depModel = getModelById(depId)
-                                                if (depModel) handleSelectModel(depModel)
-                                              }}
-                                            >
-                                              {depModel?.name || depId}
-                                            </Badge>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Key Outputs */}
-                              {model.outputs && model.outputs.length > 0 && (
-                                <div className="mb-3">
-                                  <h4 className="text-sm font-medium mb-1">Key Outputs</h4>
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {model.outputs.slice(0, 4).map((output) => (
-                                      <div
-                                        key={output.id}
-                                        className="bg-gray-50 p-2 rounded-md border border-gray-200 text-center"
-                                      >
-                                        <div className="text-lg font-bold">{output.value || "—"}</div>
-                                        <div className="text-xs text-muted-foreground">
-                                          {output.name} {output.unit && `(${output.unit})`}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                  {model.outputs.length > 4 && (
-                                    <div className="text-xs text-center mt-1 text-muted-foreground">
-                                      +{model.outputs.length - 4} more outputs
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Control Buttons */}
-                              <div className="flex space-x-2 mb-3">
-                                <Button size="sm" onClick={() => handleRunModel(model.id)}>
-                                  <Play className="mr-1 h-3 w-3" />
-                                  Run Model
-                                </Button>
-                                {isPaused && (
-                                  <Button size="sm" onClick={() => handleContinueAfterBreakpoint(model.id)}>
-                                    <Play className="mr-1 h-3 w-3" />
-                                    Continue Past Breakpoint
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleToggleBreakpoint(model.id)}
-                                  className={model.breakpoint ? "text-red-500" : ""}
-                                >
-                                  <AlertTriangle className="mr-1 h-3 w-3" />
-                                  {model.breakpoint ? "Remove Breakpoint" : "Set Breakpoint"}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => router.push(`/module-details/${model.id}`)}
-                                >
-                                  <Settings className="mr-1 h-3 w-3" />
-                                  Details
-                                </Button>
-                              </div>
-                            </div>
-
-                            {/* Modules */}
-                            {model.modules && model.modules.length > 0 ? (
-                              <div>
-                                <h4 className="text-sm font-medium mb-2">Modules ({model.modules.length})</h4>
-                                <div className="space-y-2">
-                                  {model.modules.map((module) => (
-                                    <div
-                                      key={module.id}
-                                      className={`border rounded-md p-2 hover:bg-gray-50 cursor-pointer ${
-                                        !module.enabled ? "opacity-60" : ""
-                                      } ${module.breakpoint ? "border-l-4 border-red-400" : ""}`}
-                                      onClick={() => handleSelectModule(model.id, module)}
-                                    >
-                                      <div className="flex items-center justify-between">
-                                        <div>
-                                          <div className="font-medium flex items-center">
-                                            {module.name}
-                                            {module.optional && (
-                                              <Badge variant="outline" className="ml-2 text-xs">
-                                                Optional
-                                              </Badge>
-                                            )}
-                                            {module.breakpoint && (
-                                              <Badge
-                                                variant="outline"
-                                                className="ml-2 text-xs bg-red-50 text-red-600 border-red-200"
-                                              >
-                                                <AlertTriangle className="w-3 h-3 mr-1" /> Breakpoint
-                                              </Badge>
-                                            )}
-                                          </div>
-                                          {module.description && (
-                                            <p className="text-xs text-muted-foreground">{module.description}</p>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center">
-                                          {getStatusBadge(module.status)}
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="ml-1"
-                                            onClick={(e) => {
-                                              e.stopPropagation()
-                                              handleRunModule(model.id, module.id)
-                                            }}
-                                          >
-                                            <Play className="h-3 w-3" />
-                                          </Button>
-                                        </div>
-                                      </div>
-
-                                      {/* Module Outputs Preview */}
-                                      {module.outputs && module.outputs.length > 0 && (
-                                        <div className="mt-2 grid grid-cols-2 gap-2">
-                                          {module.outputs.slice(0, 2).map((output, i) => (
-                                            <div key={i} className="text-center p-1 bg-gray-50 rounded-md">
-                                              <div className="text-sm font-bold">{output.value || "—"}</div>
-                                              <div className="text-xs text-muted-foreground">
-                                                {output.name} {output.unit && `(${output.unit})`}
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-center py-4 text-muted-foreground">
-                                No modules defined for this model
-                              </div>
-                            )}
-                          </div>
-                        </CollapsibleContent>
-                      </div>
-                      {model.dependencies &&
-                        model.dependencies.some((depId) => {
-                          const depModel = getModelById(depId)
-                          return (
-                            depModel &&
-                            (depModel.status === "paused" || currentExecutionRef.current.pausedModels.has(depId))
-                          )
-                        }) && (
-                          <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md text-sm">
-                            <AlertTriangle className="w-3 h-3 inline mr-1 text-yellow-600" />
-                            <span className="text-yellow-700">Waiting for paused dependency</span>
-                          </div>
-                        )}
-                      {model.status === "blocked" && model.blockingDependencyId && (
-                        <div className="mt-2 bg-orange-50 border border-orange-200 rounded-md p-2 text-sm">
-                          <AlertTriangle className="w-3 h-3 inline mr-1 text-orange-600" />
-                          <span className="text-orange-700">
-                            Blocked: Waiting for <strong>{model.blockingDependencyName}</strong> to complete
-                          </span>
-                        </div>
-                      )}
-                    </Collapsible>
-                  )
-                })}
-              </div>
-            </ScrollArea>
-          </CardContent>
-        </Card>
+          {/* Enhanced Execution Sequence with shared parallelExecution state */}
+          <EnhancedExecutionSequence
+            parallelExecution={parallelExecution}
+            onToggleParallelExecution={toggleParallelExecution}
+          />
+        </div>
       </div>
 
       {/* Enhanced Breakpoint Information Dialog with Mini Dashboard */}
@@ -1251,9 +672,7 @@ export function RunDashboard() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-sm font-medium">Run ID:</p>
-                          <Badge className="mt-1">
-                            {getRunId() ? `#${getRunId().substring(getRunId().length - 4)}` : "New Run"}
-                          </Badge>
+                          <Badge className="mt-1">{getRunId() ? `#${getRunId()}` : "New Run"}</Badge>
                         </div>
                         <div>
                           <p className="text-sm font-medium">Status:</p>
@@ -1706,8 +1125,8 @@ export function RunDashboard() {
                 <Pause className="w-3 h-3 mr-1" /> Run Paused
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {getRunId() ? `Run #${getRunId().substring(getRunId().length - 4)}` : "New Run"} •{" "}
-                {completedModels.length} of {sequence.length} models completed
+                {getRunId() ? `Run #${getRunId()}` : "New Run"} • {completedModels.length} of {sequence.length} models
+                completed
               </span>
             </div>
             <div className="flex gap-2">
@@ -1738,7 +1157,7 @@ export function RunDashboard() {
               {selectedModule?.status && getStatusBadge(selectedModule.status)}
               {selectedModule?.optional && (
                 <Badge variant="outline" className="ml-2 text-xs">
-                  Optionalptional
+                  Optional
                 </Badge>
               )}
               {selectedModule?.breakpoint && (

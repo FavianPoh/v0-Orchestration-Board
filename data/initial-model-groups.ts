@@ -872,7 +872,7 @@ export const initialModelGroups = [
     progress: 0,
     enabled: true,
     frozen: false,
-    breakpoint: true,
+    breakpoint: false,
     priority: 4,
     executionTime: null,
     startTime: null,

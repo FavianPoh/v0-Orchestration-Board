@@ -17,6 +17,7 @@ import {
   Power,
   SkipForward,
   AlertTriangle,
+  Snowflake,
 } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelState } from "@/context/model-state-context"
@@ -27,7 +28,7 @@ import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
 import { DependencyDebug } from "@/components/dependency-debug"
 
-export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBreakpoint }) {
+export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBreakpoint, parallelExecution }) {
   const [selectedModelId, setSelectedModelId] = useState(null)
   const [selectedModuleId, setSelectedModuleId] = useState(null)
   const [moduleData, setModuleData] = useState({})
@@ -67,6 +68,11 @@ export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBr
     getLastCompletedRunId,
     getIterationCount,
     checkAndRunFinancialModels, // Add this
+    toggleModelFrozen,
+    isModelFrozen,
+    canModelBeFrozen,
+    verifyRunCompletionStatus,
+    getParallelExecutionGroups,
   } = useModelState()
   const containerRef = useRef(null)
   const currentExecutionRef = useRef({ pausedModels: new Set() })
@@ -89,15 +95,34 @@ export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBr
 
   // Get the execution sequence from the context
   useEffect(() => {
-    const sequence = getExecutionSequence()
+    const sequence = parallelExecution ? getParallelExecutionGroups().flat() : getExecutionSequence()
     setExecutionSequence(sequence)
-  }, [modelGroups, refreshKey, getExecutionSequence])
+  }, [modelGroups, refreshKey, getExecutionSequence, parallelExecution, getParallelExecutionGroups])
 
   // Update simulation state from context
   useEffect(() => {
     setSimulationRunning(isSimulationRunning())
     setSimulationPaused(isSimulationPaused())
   }, [isSimulationRunning, isSimulationPaused])
+
+  // Add this useEffect to check for completion
+  useEffect(() => {
+    const isAnyModelRunning = modelGroups.some((model) => model.status === "running")
+    const allModelsCompleted = modelGroups.every(
+      (model) =>
+        !model.enabled || model.status === "completed" || model.status === "disabled" || isModelFrozen(model.id),
+    )
+
+    // If no models are running but simulation is still marked as running, verify completion
+    if (!isAnyModelRunning && allModelsCompleted && isSimulationRunning()) {
+      console.log("WorkflowGraph detected all models completed but run still marked as running")
+      // Call the verification function
+      const result = verifyRunCompletionStatus()
+      if (result) {
+        console.log("Run completion verified and state updated")
+      }
+    }
+  }, [modelGroups, isSimulationRunning, verifyRunCompletionStatus, isModelFrozen])
 
   const handleSelectModule = (modelId, moduleId) => {
     setSelectedModelId(modelId)
@@ -426,6 +451,24 @@ export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBr
     }
   }, [modelGroups, isSimulationRunning, isSimulationPaused, getPausedOnModel])
 
+  const handleToggleModelFrozen = (modelId) => {
+    if (!canModelBeFrozen(modelId)) {
+      toast({
+        title: "Cannot freeze model",
+        description: "Only completed models can be frozen.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    toggleModelFrozen(modelId)
+    const model = modelGroups.find((m) => m.id === modelId)
+    toast({
+      title: isModelFrozen(modelId) ? "Model unfrozen" : "Model frozen",
+      description: `${model?.name || modelId} has been ${isModelFrozen(modelId) ? "unfrozen" : "frozen"}.`,
+    })
+  }
+
   return (
     <div className="space-y-6">
       <DependencyDebug />
@@ -532,6 +575,11 @@ export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBr
                         Optional
                       </Badge>
                     )}
+                    {isModelFrozen(model.id) && (
+                      <Badge className="bg-blue-100 text-blue-600 flex items-center gap-1">
+                        <Snowflake className="h-3 w-3" /> Frozen
+                      </Badge>
+                    )}
                   </h3>
                   <p className="text-xs text-muted-foreground">{model.description}</p>
                 </div>
@@ -557,6 +605,22 @@ export function WorkflowGraph({ modelGroups, onRunAll, onRunSelected, onToggleBr
                     title={model.enabled ? "Disable model" : "Enable model"}
                   >
                     <Power className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleToggleModelFrozen(model.id)}
+                    className={isModelFrozen(model.id) ? "text-blue-500" : ""}
+                    disabled={!canModelBeFrozen(model.id)}
+                    title={
+                      canModelBeFrozen(model.id)
+                        ? isModelFrozen(model.id)
+                          ? "Unfreeze model"
+                          : "Freeze model"
+                        : "Model must be completed to freeze"
+                    }
+                  >
+                    <Snowflake className="h-4 w-4" />
                   </Button>
                 </div>
               </div>

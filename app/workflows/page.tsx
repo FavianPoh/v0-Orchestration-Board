@@ -4,19 +4,21 @@ import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Play, Pause, SkipForward, Settings } from "lucide-react"
+import { Play, Pause, SkipForward, Settings, Zap } from "lucide-react"
 import { WorkflowGraph } from "@/components/workflow-graph"
 import { DependencyGraph } from "@/components/dependency-graph"
 import { DependencyAnalyzer } from "@/components/dependency-analyzer"
 import { ExecutionStatistics } from "@/components/execution-statistics"
 import { ConditionalDependencyEditor } from "@/components/conditional-dependency-editor"
-import RunBoard from "@/components/run-board"
-import { OptimalExecutionSequence } from "@/components/optimal-execution-sequence"
+import { RunBoard } from "@/components/run-board"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelState } from "@/context/model-state-context"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { RunSignoff } from "@/components/run-signoff"
+import { RunIteration } from "@/components/run-iteration"
+import { RunExport } from "@/components/run-export"
 
 export default function WorkflowsPage() {
   const [activeTab, setActiveTab] = useState("flowchart")
@@ -115,8 +117,16 @@ export default function WorkflowsPage() {
         <div className="flex gap-2 items-center">
           <div className="flex items-center space-x-2 mr-4">
             <Switch id="parallel-execution" checked={useParallelExecution} onCheckedChange={setUseParallelExecution} />
-            <Label htmlFor="parallel-execution">Parallel Execution</Label>
+            <Label htmlFor="parallel-execution" className={useParallelExecution ? "font-bold text-blue-600" : ""}>
+              {useParallelExecution ? "Parallel Execution" : "Sequential Execution"}
+            </Label>
           </div>
+
+          {useParallelExecution && (
+            <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-200">
+              <Zap className="w-3 h-3 mr-1" /> Parallel Mode
+            </Badge>
+          )}
 
           {/* Run information badge */}
           {(isSimulationRunning() || getLastCompletedRunId()) && (
@@ -169,6 +179,9 @@ export default function WorkflowsPage() {
           <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
           <TabsTrigger value="analyzer">Dependency Analyzer</TabsTrigger>
           <TabsTrigger value="statistics">Execution Statistics</TabsTrigger>
+          <TabsTrigger value="signoff">Sign-off</TabsTrigger>
+          <TabsTrigger value="iteration">Iteration</TabsTrigger>
+          <TabsTrigger value="export">Export</TabsTrigger>
         </TabsList>
 
         <TabsContent value="flowchart" className="mt-0">
@@ -191,10 +204,6 @@ export default function WorkflowsPage() {
             onRunSelected={handleRunSelected}
             onResetOutputs={resetOutputs}
           />
-
-          <div className="mt-6">
-            <OptimalExecutionSequence modelGroups={modelGroups} />
-          </div>
         </TabsContent>
 
         <TabsContent value="dependencies" className="mt-0">
@@ -249,6 +258,42 @@ export default function WorkflowsPage() {
             </CardHeader>
             <CardContent>
               <ExecutionStatistics modelGroups={modelGroups} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="signoff" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Sign-off</CardTitle>
+              <CardDescription>Review and approve completed model runs</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RunSignoff />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="iteration" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Iteration</CardTitle>
+              <CardDescription>Create and manage iterations of model runs</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RunIteration />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="export" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Export</CardTitle>
+              <CardDescription>Export run results and documentation</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RunExport />
             </CardContent>
           </Card>
         </TabsContent>
