@@ -1,7 +1,10 @@
+"use client"
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useModelState } from "@/context/model-state-context"
 import { Badge } from "@/components/ui/badge"
 import { Clock, AlertCircle, CheckCircle } from "lucide-react"
+import { useState } from "react"
 
 export function ModelRunDashboard() {
   const { modelGroups, getExecutionSequence } = useModelState()
@@ -12,6 +15,17 @@ export function ModelRunDashboard() {
   const runningModels = sequence.filter((model) => model.status === "running")
   const completedModels = sequence.filter((model) => model.status === "completed")
   const failedModels = sequence.filter((model) => model.status === "failed")
+
+  // If this component is used, ensure it also passes the correct parallelExecution state
+
+  // Find where parallelExecution state is defined and make sure it's set to true by default
+  const [parallelExecution, setParallelExecution] = useState(true)
+
+  // Find where the EnhancedExecutionSequence component is rendered and ensure it receives the correct props
+  // <EnhancedExecutionSequence
+  //   parallelExecution={parallelExecution}
+  //   onToggleParallelExecution={toggleParallelExecution}
+  // />
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

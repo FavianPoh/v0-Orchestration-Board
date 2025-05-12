@@ -38,12 +38,14 @@ function ModuleGroupNodeComponent({ data, isConnectable }) {
   return (
     <div className="relative">
       <Handle type="target" position={Position.Left} isConnectable={isConnectable} />
-      <Card className={`w-64 shadow-md ${isDisabled ? "opacity-60" : ""}`}>
+      <Card
+        className={`w-64 shadow-md ${isDisabled ? "opacity-60" : ""} ${data.breakpoint ? "border-l-4 border-red-500 bg-red-50/30" : ""}`}
+      >
         <CardHeader className="p-3 pb-0">
           <div className="flex justify-between items-start">
             <CardTitle className="text-sm flex items-center">
               {data.label}
-              {data.breakpoint && <Badge className="ml-2 bg-red-500">Breakpoint</Badge>}
+              {data.breakpoint && <Badge className="ml-2 bg-red-500 shadow-sm animate-pulse">Breakpoint</Badge>}
               {data.priority > 3 && <Badge className="ml-2">High Priority</Badge>}
               {data.optional && (
                 <Badge variant="outline" className="ml-2">

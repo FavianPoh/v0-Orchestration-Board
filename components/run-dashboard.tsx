@@ -5,7 +5,6 @@ import { useModelState } from "@/context/model-state-context"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Dialog,
@@ -17,15 +16,32 @@ import {
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Play, Pause, SkipForward, RefreshCw, Clock, AlertCircle, CheckCircle, Info, Settings, Layers, Eye, ArrowRight, BarChartIcon, FileText, ExternalLink, Zap, Bug } from 'lucide-react'
+import {
+  Play,
+  Pause,
+  RefreshCw,
+  Clock,
+  AlertCircle,
+  CheckCircle,
+  Info,
+  Settings,
+  Eye,
+  ArrowRight,
+  BarChartIcon,
+  FileText,
+  ExternalLink,
+  Zap,
+  FileCheck,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/components/ui/use-toast"
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { LineChart, BarChart } from "@/components/ui/chart"
 import { EnhancedExecutionSequence } from "./enhanced-execution-sequence"
-import { RunCompletionOptions } from "./run-completion-options"
-import { ModelExecutionDashboard } from "./model-execution-dashboard"
 import { ModelRunTimeline } from "./model-run-timeline"
+import { Sliders, Plus } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 
 export function RunDashboard() {
   // Add these imports at the top of the file to access the run ID functions
@@ -63,7 +79,77 @@ export function RunDashboard() {
     debugAllModelsState,
     verifyRunCompletionStatus,
     isModelFrozen,
+    isDormant, // Add this
+    forceDormantState,
+    completeAllExecution,
+    simulationState,
   } = useModelState()
+
+  // Add this useEffect near the beginning of the component
+  useEffect(() => {
+    // Force a refresh when the component mounts to ensure models are displayed
+    setRefreshKey((prev) => prev + 1)
+
+    // Ensure we have a valid sequence even in dormant state
+    if (sequence.length === 0) {
+      console.log("RunDashboard: No models in sequence, forcing refresh")
+      setTimeout(() => setRefreshKey((prev) => prev + 1), 100)
+    }
+  }, [])
+
+  // Add this useEffect near the beginning of the component
+  useEffect(() => {
+    console.log("RunDashboard initializing, ensuring run state is consistent")
+
+    // Force a one-time check for inconsistent state
+    const oneTimeCheck = () => {
+      if (running) {
+        const allCompleted = sequence.every(
+          (model) =>
+            model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
+        )
+
+        if (allCompleted) {
+          console.log("Initial check: All models completed but run still active - forcing dormant state")
+          forceDormantState()
+        }
+      }
+    }
+
+    // Run the check after a short delay to ensure all state is loaded
+    setTimeout(oneTimeCheck, 100)
+
+    // Remove any DOM attributes that might be causing issues
+    document.documentElement.removeAttribute("data-simulation-running")
+    document.documentElement.removeAttribute("data-breakpoint-active")
+
+    return () => {
+      // Clean up on unmount
+      document.documentElement.removeAttribute("data-simulation-running")
+      document.documentElement.removeAttribute("data-breakpoint-active")
+    }
+  }, []) // Empty dependency array ensures this only runs once on mount
+
+  // Add a one-time initialization check on component mount
+  useEffect(() => {
+    console.log("RunDashboard initializing, ensuring run state is consistent")
+
+    // If everything appears to be completed but run still shows as running, make it dormant
+    if (running) {
+      const allCompleted = sequence.every(
+        (model) =>
+          model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
+      )
+
+      if (allCompleted) {
+        console.log("Initial check: All models completed but run still active - forcing dormant state")
+        verifyRunCompletionStatus()
+      }
+    }
+
+    // Force component to use cached sequence after initial render
+    setRefreshKey((prev) => prev + 1)
+  }, []) // Empty dependency array ensures this only runs once on mount
 
   const router = useRouter()
   const { toast } = useToast()
@@ -73,7 +159,7 @@ export function RunDashboard() {
   const [selectedModule, setSelectedModule] = useState(null)
   const [selectedModelId, setSelectedModelId] = useState(null)
   // Single source of truth for parallelExecution
-  const [parallelExecution, setParallelExecution] = useState(true)
+  const [parallelExecution, setParallelExecution] = useState(true) // Default to true for parallel execution
   const [refreshKey, setRefreshKey] = useState(0) // For forcing re-renders
   const [pausedModelData, setPausedModelData] = useState(null) // Store paused model data for the breakpoint dialog
   const [breakpointInfoOpen, setBreakpointInfoOpen] = useState(false)
@@ -217,15 +303,25 @@ export function RunDashboard() {
 
     // Wait a moment to ensure UI updates before continuing
     setTimeout(() => {
-      continueAfterBreakpoint(modelId)
+      // Make sure we're still in a running state
+      if (isSimulationRunning()) {
+        continueAfterBreakpoint(modelId)
 
-      toast({
-        title: "Continuing execution",
-        description: `Execution will continue from model ${getModelById(modelId)?.name || modelId}`,
-      })
+        toast({
+          title: "Continuing execution",
+          description: `Execution will continue from model ${getModelById(modelId)?.name || modelId}`,
+        })
 
-      // Force refresh to update UI
-      setRefreshKey((prev) => prev + 1)
+        // Force refresh to update UI
+        setRefreshKey((prev) => prev + 1)
+      } else {
+        // If simulation is no longer running, inform the user
+        toast({
+          title: "Cannot continue execution",
+          description: "The simulation is no longer running. Please start a new run.",
+          variant: "destructive",
+        })
+      }
     }, 300)
   }
 
@@ -246,31 +342,14 @@ export function RunDashboard() {
 
   // Handle model selection for details view
   const handleSelectModel = (model) => {
-    // Get the latest model data directly from modelGroups
-    const latestModel = modelGroups.find((m) => m.id === model.id)
-
-    if (latestModel) {
-      setSelectedModel(latestModel)
-      setSelectedModelId(latestModel.id)
-
-      // Auto-expand the selected model
-      setExpandedModels((prev) => ({
-        ...prev,
-        [latestModel.id]: true,
-      }))
-
-      // Scroll to the model in the sequence view if it's in the timeline
-      if (modelRefs.current[latestModel.id] && sequenceRef.current) {
-        modelRefs.current[latestModel.id].scrollIntoView({ behavior: "smooth", block: "center" })
-      }
-    }
+    // Navigate to the model details page
+    router.push(`/model-groups/${model.id}`)
   }
 
   // Handle module selection for details dialog
   const handleSelectModule = (modelId, module) => {
-    setSelectedModule(module)
-    setSelectedModelId(modelId)
-    setModuleDialogOpen(true)
+    // Navigate to the module details page
+    router.push(`/module-details/${module.id}`)
   }
 
   // Handle running a specific model
@@ -382,6 +461,21 @@ export function RunDashboard() {
     }
   }
 
+  // Add a dedicated function to generate a breakpoint badge for models
+  // Add this function after the getStatusBadge function:
+
+  // Get breakpoint badge for a model
+  const getBreakpointBadge = (modelId) => {
+    const model = getModelById(modelId)
+    if (!model || !model.breakpoint) return null
+
+    return (
+      <Badge className="bg-red-100 text-red-600 border border-red-300">
+        <AlertCircle className="w-3 h-3 mr-1" /> Breakpoint
+      </Badge>
+    )
+  }
+
   // Check if a model is currently running
   const isModelRunning = (modelId) => {
     return runningModels.includes(modelId)
@@ -488,6 +582,7 @@ export function RunDashboard() {
         if (isNaN(baseValue)) return null
 
         const data = []
+
         for (let i = days; i >= 0; i--) {
           // Generate a value that fluctuates around the base value
           const fluctuation = (Math.random() - 0.5) * 0.2 * baseValue
@@ -529,8 +624,8 @@ export function RunDashboard() {
 
   // Check for completion when the component mounts or when the sequence changes
   useEffect(() => {
-    // Only run this check if the simulation is running
-    if (running) {
+    // Only run this check if the simulation is running and not dormant
+    if (running && !isDormant()) {
       const pendingCount = sequence.filter((model) => model.status === "idle").length
       const runningCount = sequence.filter((model) => model.status === "running").length
       const completedCount = sequence.filter((model) => model.status === "completed").length
@@ -541,7 +636,7 @@ export function RunDashboard() {
         verifyRunCompletionStatus()
       }
     }
-  }, [running, sequence, verifyRunCompletionStatus])
+  }, [running, sequence, verifyRunCompletionStatus, isDormant])
 
   // Add a useEffect to verify run completion status when component mounts or updates
 
@@ -550,7 +645,7 @@ export function RunDashboard() {
   // Add this after the other useEffect hooks
   useEffect(() => {
     // Check if all models are completed but the run is still marked as running
-    if (running && sequence.length > 0) {
+    if (running && sequence.length > 0 && !isDormant()) {
       const allCompleted = sequence.every(
         (model) =>
           model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
@@ -562,7 +657,116 @@ export function RunDashboard() {
         verifyRunCompletionStatus()
       }
     }
-  }, [running, sequence, verifyRunCompletionStatus, isModelFrozen])
+  }, [running, sequence, verifyRunCompletionStatus, isModelFrozen, isDormant])
+
+  // Add this useEffect to ensure the running state is updated when all models complete
+  useEffect(() => {
+    // If all models are completed but the run is still marked as running
+    if (running && sequence.length > 0 && !isDormant()) {
+      const allCompleted = sequence.every(
+        (model) =>
+          model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
+      )
+
+      if (allCompleted) {
+        console.log("All models completed, forcing run completion check")
+        verifyRunCompletionStatus()
+      }
+    }
+  }, [sequence, running, verifyRunCompletionStatus, isModelFrozen, isDormant])
+
+  // Add a new useEffect that specifically checks the DOM attribute
+  // and forces a state update if needed
+  useEffect(() => {
+    // Don't check for inconsistencies in dormant state
+    if (isDormant()) return
+
+    // Check for inconsistency between DOM attribute and React state
+    const isRunningInDOM = document.documentElement.getAttribute("data-simulation-running") === "true"
+
+    if (!isRunningInDOM && running) {
+      console.log("Detected inconsistency: DOM says not running but state says running")
+      // Force state update to match DOM
+      setRefreshKey((prev) => prev + 1)
+    } else if (isRunningInDOM && !running) {
+      console.log("Detected inconsistency: DOM says running but state says not running")
+      // Force state update to match DOM
+      setRefreshKey((prev) => prev + 1)
+    }
+  }, [running, refreshKey, isDormant])
+
+  // Add another useEffect that runs a completion check on a timer
+  useEffect(() => {
+    if (running && !isDormant()) {
+      const checkInterval = setInterval(() => {
+        // Count completed models
+        const completedCount = sequence.filter(
+          (model) => model.status === "completed" || isModelFrozen(model.id) || !model.enabled,
+        ).length
+
+        // If all models are completed but run still shows as running
+        if (completedCount === sequence.length) {
+          console.log("Timer detected all models completed, forcing verification")
+          verifyRunCompletionStatus()
+        }
+      }, 1000) // Check every second
+
+      return () => clearInterval(checkInterval)
+    }
+  }, [running, sequence, verifyRunCompletionStatus, isModelFrozen, isDormant])
+
+  // Add a new useEffect that runs a more aggressive check for completion
+  useEffect(() => {
+    // Only run if not already in dormant state
+    if (running && !isDormant()) {
+      // Check if all models are completed
+      const allCompleted = sequence.every(
+        (model) =>
+          model.status === "completed" || !model.enabled || model.status === "disabled" || isModelFrozen(model.id),
+      )
+
+      if (allCompleted) {
+        console.log("All models are completed - forcing complete execution stop")
+        completeAllExecution()
+      }
+    }
+  }, [running, sequence, isDormant, completeAllExecution, isModelFrozen])
+
+  const handleReset = () => {
+    console.log("Initiating complete reset of all models and state")
+
+    // First force complete stop of all execution
+    completeAllExecution()
+
+    // Then reset outputs with a slight delay to ensure clean state
+    setTimeout(() => {
+      resetOutputs()
+
+      toast({
+        title: "Reset complete",
+        description: "All models and state have been reset to initial values.",
+      })
+
+      // Force refresh to update UI
+      setRefreshKey((prev) => prev + 1)
+    }, 100)
+  }
+
+  // Function to safely get run duration
+  function getRunDurationSecs() {
+    if (!simulationState || !simulationState.runStartTime) return 0
+
+    // If the run is finalized, use the end time for a fixed duration
+    if (simulationState.runState === "FINALIZED" && simulationState.runEndTime) {
+      return Math.floor((simulationState.runEndTime - simulationState.runStartTime) / 1000)
+    }
+
+    // Otherwise, calculate the current duration
+    return Math.floor((Date.now() - simulationState.runStartTime) / 1000)
+  }
+
+  // Check if run is finalized - safely access simulationState
+  const isRunFinalized = simulationState && simulationState.runState === "FINALIZED"
 
   return (
     <div className="container mx-auto p-4">
@@ -611,13 +815,146 @@ export function RunDashboard() {
                 <div className="text-sm text-muted-foreground">Failed</div>
               </CardContent>
             </Card>
+            {isRunFinalized && (
+              <Card className="col-span-4 bg-green-50 border-green-200">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center">
+                    <FileCheck className="h-5 w-5 text-green-600 mr-2" />
+                    <div>
+                      <div className="font-medium text-green-700">Run Finalized and Signed Off</div>
+                      <div className="text-sm text-green-600">
+                        This run has been completed and signed off. Start a new run to make changes.
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="bg-green-100 hover:bg-green-200 text-green-700 border-green-300"
+                    onClick={() => resetOutputs()}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Start New Run
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
+
+          {/* Breakpoint Banner - Show when a breakpoint is hit */}
+          {paused && pausedOnModel && (
+            <Card className="mb-6 bg-amber-50 border-amber-300 shadow-md overflow-hidden">
+              <div className="border-l-4 border-amber-500">
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div className="flex items-center">
+                    <div className="bg-amber-100 p-2 rounded-full mr-4">
+                      <Pause className="h-6 w-6 text-amber-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-amber-800">Execution Paused at Breakpoint</h3>
+                      <p className="text-amber-700">
+                        Run ID #{getRunId()?.substring(0, 8)} is paused at model:{" "}
+                        <span className="font-medium">{getModelById(pausedOnModel)?.name}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => continueAfterBreakpoint(pausedOnModel)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white border-amber-700"
+                    >
+                      <Play className="mr-2 h-4 w-4" />
+                      Resume Run #{getRunId()?.substring(0, 4)}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setBreakpointInfoOpen(true)}
+                      className="border-amber-400 text-amber-700 hover:bg-amber-100"
+                    >
+                      <Settings className="mr-2 h-4 w-4" />
+                      Breakpoint Options
+                    </Button>
+                  </div>
+                </CardContent>
+              </div>
+            </Card>
+          )}
 
           {/* Enhanced Execution Sequence with shared parallelExecution state */}
           <EnhancedExecutionSequence
             parallelExecution={parallelExecution}
             onToggleParallelExecution={toggleParallelExecution}
+            onContinueAfterBreakpoint={continueAfterBreakpoint}
           />
+
+          {/* Replace the existing Run All button with this improved version */}
+          <div className="flex gap-2 w-full">
+            {paused && pausedOnModel ? (
+              <>
+                <Button
+                  onClick={() => continueAfterBreakpoint(pausedOnModel)}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  Resume Run #{getRunId()?.substring(0, 4)}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setBreakpointInfoOpen(true)}
+                  className="border-amber-400 text-amber-700 hover:bg-amber-100"
+                >
+                  <Settings className="mr-2 h-4 w-4" />
+                  Breakpoint Options
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={running ? handlePauseResume : handleRunAll}
+                disabled={running && !paused}
+                className="flex-1"
+              >
+                {running ? (
+                  paused ? (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Resume Execution
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="mr-2 h-4 w-4" />
+                      Pause Execution
+                    </>
+                  )
+                ) : (
+                  <>
+                    <Play className="mr-2 h-4 w-4" />
+                    Run All Models
+                  </>
+                )}
+              </Button>
+            )}
+
+            {/* Add Force Complete button when running */}
+            {running && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  verifyRunCompletionStatus()
+                  toast({
+                    title: "Force completing run",
+                    description: "Attempting to force complete the current run",
+                  })
+                }}
+                className="bg-red-50 hover:bg-red-100 text-red-600 border-red-200"
+              >
+                <CheckCircle className="mr-2 h-4 w-4" />
+                Force Complete Run
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleReset} className="ml-2">
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Reset All
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -626,7 +963,8 @@ export function RunDashboard() {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center text-yellow-700">
-              <Pause className="w-5 h-5 mr-2 text-yellow-600" /> Execution Paused at Breakpoint
+              <Pause className="w-5 h-5 mr-2 text-yellow-600" />
+              Run #{getRunId()?.substring(0, 8)} Paused at Breakpoint
             </DialogTitle>
             <DialogDescription>
               <div className="flex items-center">
@@ -641,7 +979,7 @@ export function RunDashboard() {
           </DialogHeader>
 
           <Tabs value={breakpointActiveTab} onValueChange={setBreakpointActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="dashboard">
                 <BarChartIcon className="mr-2 h-4 w-4" />
                 Dashboard
@@ -657,6 +995,10 @@ export function RunDashboard() {
               <TabsTrigger value="details">
                 <FileText className="mr-2 h-4 w-4" />
                 Details
+              </TabsTrigger>
+              <TabsTrigger value="adjustments">
+                <Sliders className="mr-2 h-4 w-4" />
+                Adjustments
               </TabsTrigger>
             </TabsList>
 
@@ -686,7 +1028,7 @@ export function RunDashboard() {
                         </div>
                         <div>
                           <p className="text-sm font-medium">Duration:</p>
-                          <p>{getRunDuration()}s</p>
+                          <p>{getRunDurationSecs()}s</p>
                         </div>
                       </div>
                     </CardContent>
@@ -766,12 +1108,13 @@ export function RunDashboard() {
                     <CardContent>
                       <div className="grid grid-cols-3 gap-4">
                         {(pausedModelData || getModelById(pausedOnModel))?.outputs?.map((output, index) => (
-                          <div key={index} className="bg-muted p-3 rounded-md">
+                          <div key={index} className="bg-muted p-3 rounded-md relative group">
                             <p className="text-sm text-muted-foreground">{output.name}</p>
                             <p className="text-lg font-medium">
                               {output.value}{" "}
                               {output.unit && <span className="text-sm text-muted-foreground">{output.unit}</span>}
                             </p>
+                            <div className="absolute inset-0 bg-blue-100 opacity-0 transition-opacity duration-300 group-hover:opacity-20 rounded-md"></div>
                           </div>
                         ))}
                       </div>
@@ -890,13 +1233,17 @@ export function RunDashboard() {
                                   <div>
                                     <h4 className="text-sm font-medium mb-2">Outputs</h4>
                                     {module.outputs?.map((output, idx) => (
-                                      <div key={idx} className="flex justify-between items-center mb-1 text-sm">
+                                      <div
+                                        key={idx}
+                                        className="flex justify-between items-center mb-1 text-sm group relative"
+                                      >
                                         <span className="text-muted-foreground">{output.name}:</span>
-                                        <span>
+                                        <span className="relative">
                                           {output.value}{" "}
                                           {output.unit && (
                                             <span className="text-xs text-muted-foreground">{output.unit}</span>
                                           )}
+                                          <div className="absolute inset-0 bg-blue-100 opacity-0 transition-opacity duration-300 group-hover:opacity-20 rounded-md"></div>
                                         </span>
                                       </div>
                                     ))}
@@ -1110,6 +1457,122 @@ export function RunDashboard() {
                     <CardContent>
                       <div className="bg-gray-100 p-4 rounded-md font-mono text-sm overflow-auto max-h-[200px]">
                         <pre>{getModelById(pausedOnModel)?.code || "No code available"}</pre>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="adjustments" className="mt-4">
+              {pausedOnModel && (
+                <div className="space-y-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-md">Output Adjustments</CardTitle>
+                      <CardDescription>Modify output values before continuing execution</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {(pausedModelData || getModelById(pausedOnModel))?.outputs?.map((output, index) => (
+                          <div key={index} className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <Label htmlFor={`output-${index}`} className="font-medium">
+                                {output.name}
+                                {output.unit && <span className="text-muted-foreground ml-1">({output.unit})</span>}
+                              </Label>
+                              <Badge variant="outline" className="text-xs">
+                                Original: {output.value}
+                              </Badge>
+                            </div>
+                            <div className="flex gap-2">
+                              <Input
+                                id={`output-${index}`}
+                                type="number"
+                                defaultValue={output.value}
+                                className="flex-1"
+                                onChange={(e) => {
+                                  // In a real implementation, this would update the output value
+                                  // For now, we'll just log it
+                                  console.log(`Adjusting ${output.name} to ${e.target.value}`)
+                                }}
+                              />
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  toast({
+                                    title: "Output adjusted",
+                                    description: `${output.name} has been adjusted.`,
+                                  })
+                                }}
+                              >
+                                Apply
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {output.description || `Adjust the value of ${output.name} before continuing execution.`}
+                            </p>
+                          </div>
+                        ))}
+
+                        <Separator className="my-4" />
+
+                        <div>
+                          <h3 className="text-sm font-medium mb-2">Adjustment Models</h3>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between p-2 border rounded-md">
+                              <div>
+                                <h4 className="font-medium">Variable Adjustment</h4>
+                                <p className="text-xs text-muted-foreground">
+                                  Apply variable adjustments to model outputs
+                                </p>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  toast({
+                                    title: "Variable Adjustment",
+                                    description: "Variable adjustment model would run here.",
+                                  })
+                                }}
+                              >
+                                Run Adjustment
+                              </Button>
+                            </div>
+
+                            <div className="flex items-center justify-between p-2 border rounded-md">
+                              <div>
+                                <h4 className="font-medium">Income Adjustment</h4>
+                                <p className="text-xs text-muted-foreground">Apply income-specific adjustments</p>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  toast({
+                                    title: "Income Adjustment",
+                                    description: "Income adjustment model would run here.",
+                                  })
+                                }}
+                              >
+                                Run Adjustment
+                              </Button>
+                            </div>
+
+                            <Button
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => {
+                                toast({
+                                  title: "Add Adjustment Model",
+                                  description: "This would open a dialog to add a new adjustment model.",
+                                })
+                              }}
+                            >
+                              <Plus className="w-4 h-4 mr-2" /> Add Adjustment Model
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>

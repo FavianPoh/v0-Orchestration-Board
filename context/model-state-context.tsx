@@ -56,9 +56,9 @@ type ModelStateContextType = {
   getLastCompletedRunId: () => string | null
   prepareToRunModel: (modelId: string) => boolean
   checkAndRunFinancialModels: () => boolean
-  verifyModelCompletionState: () => void
+  verifyModelCompletionState: () => boolean
   canModelRun: (modelId: string) => boolean
-  completeModel: () => void
+  completeModel: (modelId: string) => void
   resetModelState: (modelId: string) => void
   debugModelState: (modelId: string) => void
   verifyRunCompletionStatus: () => boolean
@@ -70,6 +70,10 @@ type ModelStateContextType = {
   isModelFrozen: (modelId: string) => boolean
   getFrozenModels: () => string[]
   canModelBeFrozen: (modelId: string) => boolean
+  isDormant: () => boolean
+  forceDormantState: () => void
+  completeAllExecution: () => boolean
+  simulationState: any
 }
 
 const ModelStateContext = createContext<ModelStateContextType | undefined>(undefined)
@@ -125,6 +129,8 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     // New state for Phase 1
     runState: "IDLE" as RunState,
     frozenModels: new Set<string>(),
+    // Add dormant flag to prevent loops
+    dormant: true,
   })
 
   // Use refs to cache execution sequences to prevent excessive recalculations
@@ -149,6 +155,9 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     processedModels: Set<string>
     processedModules: Set<string>
     dependencyMap: Map<string, string[]>
+    verifying: boolean
+    lastRebuildTime?: number
+    rebuildLocked: boolean // Add this property
   }>({
     parallel: false,
     currentIndex: 0,
@@ -161,6 +170,8 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     processedModels: new Set(),
     processedModules: new Set(),
     dependencyMap: new Map(),
+    verifying: false,
+    rebuildLocked: false,
   })
 
   const timeoutsRef = useRef(new Map())
@@ -227,120 +238,152 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     )
   }
 
-  // Get the execution sequence based on the predefined order and dependencies
+  // Find the getExecutionSequence function and replace it with this version
   function getExecutionSequence() {
-    // Force rebuild the execution sequence every time to ensure fresh data
-    // This prevents stale data from being displayed in the Execution Sequence view
-    executionSequenceDirty.current = true
+    // CRITICAL: In dormant state, return the cached sequence if available
+    if (simulationState.dormant) {
+      // Only log if we're actually rebuilding
+      if (executionSequenceCache.current.length > 0) {
+        // Removed excessive logging here
+        return executionSequenceCache.current
+      }
+      // Only log once when building for the first time
+      console.log("Building execution sequence for the first time in dormant state")
+    }
 
-    // Use cached sequence if available and not dirty
-    if (executionSequenceCache.current.length > 0 && !executionSequenceDirty.current) {
+    // Check if rebuilding is locked to prevent concurrent rebuilds
+    if (currentExecutionRef.current.rebuildLocked) {
+      console.log("Rebuild is locked, returning cached sequence")
+      return executionSequenceCache.current.length > 0 ? executionSequenceCache.current : []
+    }
+
+    // Strict throttling to prevent excessive rebuilds - 3 seconds minimum between rebuilds
+    const now = Date.now()
+    if (
+      currentExecutionRef.current.lastRebuildTime &&
+      now - currentExecutionRef.current.lastRebuildTime < 3000 && // Increase to 3000ms
+      executionSequenceCache.current.length > 0 &&
+      !executionSequenceDirty.current
+    ) {
       return executionSequenceCache.current
     }
 
-    console.log("Rebuilding execution sequence")
+    // Lock rebuilding and update timestamp
+    currentExecutionRef.current.rebuildLocked = true
+    currentExecutionRef.current.lastRebuildTime = now
 
-    // Get all enabled models
-    const enabledModels = modelGroups.filter((m) => m.enabled)
+    try {
+      console.log("Rebuilding execution sequence")
 
-    // Create a map for quick model lookup
-    const modelMap = new Map()
-    enabledModels.forEach((model) => {
-      modelMap.set(model.id, model)
-    })
+      // Get all enabled models
+      const enabledModels = modelGroups.filter((m) => m.enabled)
 
-    // Create a map of model IDs to their position in executionOrder for tiebreaking
-    const orderMap = new Map<string, number>()
-    executionOrder.forEach((id, index) => {
-      orderMap.set(id, index)
-    })
-
-    // Build dependency graph
-    const graph = new Map<string, string[]>()
-    enabledModels.forEach((model) => {
-      graph.set(model.id, model.dependencies?.filter((depId) => enabledModels.some((m) => m.id === depId)) || [])
-    })
-
-    // Topological sort with tiebreaking by execution order
-    const visited = new Set<string>()
-    const temp = new Set<string>()
-    const result: any[] = []
-
-    function visit(modelId: string) {
-      // If we've already processed this node, skip it
-      if (visited.has(modelId)) return
-
-      // If we're currently processing this node, we have a cycle
-      if (temp.has(modelId)) {
-        console.warn(`Circular dependency detected involving model ${modelId}`)
-        return
-      }
-
-      // Mark node as being processed
-      temp.add(modelId)
-
-      // Process all dependencies first
-      const dependencies = graph.get(modelId) || []
-
-      // Sort dependencies by execution order for deterministic processing
-      const sortedDeps = [...dependencies].sort((a, b) => {
-        const orderA = orderMap.has(a) ? orderMap.get(a)! : Number.MAX_SAFE_INTEGER
-        const orderB = orderMap.has(b) ? orderMap.get(b)! : Number.MAX_SAFE_INTEGER
-        return orderA - orderB
+      // Create a map for quick model lookup
+      const modelMap = new Map()
+      enabledModels.forEach((model) => {
+        modelMap.set(model.id, model)
       })
 
-      for (const depId of sortedDeps) {
-        visit(depId)
-      }
-
-      // Mark node as processed
-      temp.delete(modelId)
-      visited.add(modelId)
-
-      // Add model to result
-      const model = modelMap.get(modelId)
-      if (model) {
-        result.push(model)
-      }
-    }
-
-    // Process all models in execution order to ensure deterministic results
-    const sortedModelIds = enabledModels
-      .map((model) => model.id)
-      .sort((a, b) => {
-        const orderA = orderMap.has(a) ? orderMap.get(a)! : Number.MAX_SAFE_INTEGER
-        const orderB = orderMap.has(b) ? orderMap.get(b)! : Number.MAX_SAFE_INTEGER
-        return orderA - orderB
+      // Create a map of model IDs to their position in executionOrder for tiebreaking
+      const orderMap = new Map<string, number>()
+      executionOrder.forEach((id, index) => {
+        orderMap.set(id, index)
       })
 
-    for (const modelId of sortedModelIds) {
-      if (!visited.has(modelId)) {
-        visit(modelId)
+      // Build dependency graph
+      const graph = new Map<string, string[]>()
+      enabledModels.forEach((model) => {
+        graph.set(model.id, model.dependencies?.filter((depId) => enabledModels.some((m) => m.id === depId)) || [])
+      })
+
+      // Topological sort with tiebreaking by execution order
+      const visited = new Set<string>()
+      const temp = new Set<string>()
+      const result: any[] = []
+
+      function visit(modelId: string) {
+        if (visited.has(modelId)) return
+        if (temp.has(modelId)) {
+          console.warn(`Circular dependency detected involving model ${modelId}`)
+          return
+        }
+
+        temp.add(modelId)
+
+        const dependencies = graph.get(modelId) || []
+        const sortedDeps = [...dependencies].sort((a, b) => {
+          const orderA = orderMap.has(a) ? orderMap.get(a)! : Number.MAX_SAFE_INTEGER
+          const orderB = orderMap.has(b) ? orderMap.get(b)! : Number.MAX_SAFE_INTEGER
+          return orderA - orderB
+        })
+
+        for (const depId of sortedDeps) {
+          visit(depId)
+        }
+
+        temp.delete(modelId)
+        visited.add(modelId)
+
+        const model = modelMap.get(modelId)
+        if (model) {
+          result.push(model)
+        }
       }
+
+      // Process all models in execution order
+      const sortedModelIds = enabledModels
+        .map((model) => model.id)
+        .sort((a, b) => {
+          const orderA = orderMap.has(a) ? orderMap.get(a)! : Number.MAX_SAFE_INTEGER
+          const orderB = orderMap.has(b) ? orderMap.get(b)! : Number.MAX_SAFE_INTEGER
+          return orderA - orderB
+        })
+
+      for (const modelId of sortedModelIds) {
+        if (!visited.has(modelId)) {
+          visit(modelId)
+        }
+      }
+
+      // Store dependency map for later use
+      const dependencyMap = new Map<string, string[]>()
+      enabledModels.forEach((model) => {
+        dependencyMap.set(model.id, model.dependencies || [])
+      })
+      currentExecutionRef.current.dependencyMap = dependencyMap
+
+      // Cache the result
+      executionSequenceCache.current = result
+      executionSequenceDirty.current = false
+
+      return result
+    } finally {
+      // Always unlock rebuilding when done
+      currentExecutionRef.current.rebuildLocked = false
     }
-
-    // Store dependency map for later use
-    const dependencyMap = new Map<string, string[]>()
-    enabledModels.forEach((model) => {
-      dependencyMap.set(model.id, model.dependencies || [])
-    })
-    currentExecutionRef.current.dependencyMap = dependencyMap
-
-    // Cache the result
-    executionSequenceCache.current = result
-    executionSequenceDirty.current = false
-
-    // Debug the sequence
-    console.log("Generated execution sequence:", result.map((m) => m.id).join(", "))
-
-    return result
   }
 
-  // Get parallel execution groups
+  // Find the getParallelExecutionGroups function and replace it with this version
   function getParallelExecutionGroups() {
-    // Use cached groups if available and not dirty
-    if (parallelGroupsCache.current.length > 0 && !executionSequenceDirty.current) {
+    // Use cached groups if available and not dirty, with strict conditions
+    if (
+      parallelGroupsCache.current.length > 0 &&
+      !executionSequenceDirty.current &&
+      currentExecutionRef.current.lastRebuildTime &&
+      Date.now() - currentExecutionRef.current.lastRebuildTime < 3000
+    ) {
       return parallelGroupsCache.current
+    }
+
+    // If we're in dormant state and have cached groups, use them
+    if (simulationState.dormant && parallelGroupsCache.current.length > 0) {
+      // Removed excessive logging
+      return parallelGroupsCache.current
+    }
+
+    // If we're in dormant state with no cached groups, build them once
+    if (simulationState.dormant && parallelGroupsCache.current.length === 0) {
+      console.log("Building parallel groups for the first time in dormant state")
     }
 
     const enabledModels = modelGroups.filter((m) => m.enabled)
@@ -396,8 +439,11 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       levelModels.forEach((model) => processed.add(model.id))
     }
 
-    // Cache the result
+    // Cache the result with timestamp
     parallelGroupsCache.current = groups
+    if (!currentExecutionRef.current.lastRebuildTime) {
+      currentExecutionRef.current.lastRebuildTime = Date.now()
+    }
 
     return groups
   }
@@ -457,6 +503,13 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
   // Function to get the run duration in seconds
   function getRunDuration() {
     if (!simulationState.runStartTime) return 0
+
+    // If the run is finalized, use the end time for a fixed duration
+    if (simulationState.runState === "FINALIZED" && simulationState.runEndTime) {
+      return Math.floor((simulationState.runEndTime - simulationState.runStartTime) / 1000)
+    }
+
+    // Otherwise, calculate the current duration
     return Math.floor((Date.now() - simulationState.runStartTime) / 1000)
   }
 
@@ -529,6 +582,18 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
   function pauseExecution() {
     console.log("Pausing execution")
 
+    // Cancel all pending model completions
+    if (timeoutsRef.current) {
+      timeoutsRef.current.forEach((timeout, key) => {
+        if (key.includes("-completion")) {
+          if (typeof timeout === "number") {
+            clearTimeout(timeout)
+          }
+          console.log(`Cancelled pending completion for ${key.split("-")[0]} due to pause`)
+        }
+      })
+    }
+
     // Update simulation state
     setSimulationState((prev) => ({
       ...prev,
@@ -595,13 +660,28 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
 
     // Check if all dependencies are completed
     const allDependenciesCompleted = model.dependencies.every((depId) => {
-      // Check multiple sources of truth for completion status
+      const depModel = getModelById(depId)
+
+      // Check if this direct dependency has a breakpoint that's active
+      const isDirectlyPaused = currentExecutionRef.current.pausedModels.has(depId)
+      if (isDirectlyPaused) {
+        console.log(`Direct dependency ${depId} for model ${modelId} is paused at a breakpoint`)
+        // Update the model with blocking dependency info for UI
+        if (depModel) {
+          updateModelGroup(modelId, {
+            status: "blocked",
+            blockingDependencyId: depId,
+            blockingDependencyName: `${depModel.name} (Paused at breakpoint)`,
+          })
+        }
+        return false
+      }
+
+      // Standard completion checks
       const isInCompletedModels = completedModelsRef.current.has(depId)
       const isInProcessedModels = processedModelsRef.current.has(depId)
       const isInSimulationState = ensureSet(simulationState.completedModels).has(depId)
       const isInCurrentExecution = ensureSet(currentExecutionRef.current.processedModels).has(depId)
-
-      const depModel = getModelById(depId)
       const isCompletedInModel = depModel && depModel.status === "completed"
       const isFrozen = isModelFrozen(depId)
 
@@ -624,7 +704,6 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
             blockingDependencyName: depModel.name,
           })
         }
-
         return false
       }
 
@@ -684,6 +763,8 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
           startTime: null,
           endTime: null,
           executionTime: null,
+          blockingDependencyId: null,
+          blockingDependencyName: null,
         })
 
         // Remove from all tracking sets
@@ -799,6 +880,9 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     currentExecutionRef.current.pausedModels = new Set()
     currentExecutionRef.current.pausedModules = new Set()
 
+    // Reset the verifying flag
+    currentExecutionRef.current.verifying = false
+
     // Update simulation state - use a callback to ensure we're working with the latest state
     setSimulationState((prev) => {
       console.log("Updating simulation state to completed")
@@ -813,6 +897,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
         lastCompletedRunId: runId,
         completedRuns: [...prev.completedRuns, runRecord],
         runState: "FINALIZED" as RunState,
+        dormant: true, // Set dormant to true when ending simulation
       }
     })
 
@@ -821,10 +906,22 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
 
   // Function to run a model
   function runModel(modelId: string) {
-    // If model is frozen, it can't run
-    if (isModelFrozen(modelId)) {
-      console.log(`Model ${modelId} is frozen and cannot run`)
+    // If global execution is paused (not just a breakpoint), don't start new models
+    if (simulationState.paused) {
+      console.log(`Cannot run model ${modelId}: execution is globally paused`)
       return
+    }
+
+    // If there's an active breakpoint, check if this model depends on the paused model
+    const activeBreakpointModel = document.documentElement.getAttribute("data-breakpoint-active")
+    if (activeBreakpointModel !== null) {
+      const model = getModelById(modelId)
+      if (model && model.dependencies && model.dependencies.includes(activeBreakpointModel)) {
+        console.log(`Cannot run model ${modelId}: depends on paused model ${activeBreakpointModel}`)
+        return
+      }
+      // If the model doesn't depend on the paused model, it can still run
+      console.log(`Model ${modelId} doesn't depend on paused model ${activeBreakpointModel}, allowing execution`)
     }
 
     if (!prepareToRunModel(modelId)) return
@@ -854,27 +951,32 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     timeoutsRef.current.set(`${modelId}-completion`, completionTimeout)
   }
 
-  // Function to check and run models that depend on a completed model
   function checkAndRunDependentModels(modelId: string) {
-    // At the beginning of the checkAndRunDependentModels function, add:
+    // Exit early if in dormant state
+    if (simulationState.dormant) {
+      console.log("Run is dormant, skipping dependent model checks")
+      return
+    }
+
     // Check if there's an active breakpoint
     const activeBreakpoint = document.documentElement.getAttribute("data-breakpoint-active")
     if (activeBreakpoint) {
-      console.log(`Cannot run dependent models: breakpoint active on model ${activeBreakpoint}`)
+      console.log(`Breakpoint active on model ${activeBreakpoint}, checking for non-dependent models that can run`)
+      // Instead of returning, we'll continue but only run models that don't depend on the paused model
+    }
+
+    // Check if simulation is paused (separate from breakpoint)
+    if (simulationState.paused) {
+      console.log("Simulation is paused, skipping dependent model execution")
       return
     }
+
     // Check if simulation is running using the data attribute
-    const isRunning = document.querySelector("[data-simulation-running='true']") !== null
+    const isRunning = document.documentElement.getAttribute("data-simulation-running") === "true"
 
     // If the simulation is no longer running, don't start new models
     if (!isRunning) {
       console.log("Simulation is not running (checked via data attribute), skipping dependent model execution")
-      return
-    }
-
-    // If simulation is paused, don't start new models
-    if (simulationState.paused) {
-      console.log("Simulation is paused, skipping dependent model execution")
       return
     }
 
@@ -892,10 +994,25 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
 
       console.log(`Found ${pendingModels.length} pending models to check in parallel mode`)
 
-      // Check each model to see if it can run now
+      // For parallel execution mode, update the check for each pending model:
       let startedCount = 0
       pendingModels.forEach((model) => {
-        if (canModelRun(model.id)) {
+        // Check if this model depends on any model with an active breakpoint
+        const dependsOnBreakpointedModel = model.dependencies?.some((depId) =>
+          currentExecutionRef.current.pausedModels.has(depId),
+        )
+
+        if (dependsOnBreakpointedModel) {
+          console.log(`Model ${model.id} depends on a model with an active breakpoint, cannot run yet`)
+          // Update model status to show it's blocked by a breakpoint
+          updateModelGroup(model.id, {
+            status: "blocked",
+            blockingDependencyId: Array.from(currentExecutionRef.current.pausedModels).find((id) =>
+              model.dependencies.includes(id),
+            ),
+            blockingDependencyName: "Paused at breakpoint",
+          })
+        } else if (canModelRun(model.id)) {
           console.log(`Running model ${model.id} in parallel mode`)
           runModel(model.id)
           startedCount++
@@ -904,15 +1021,8 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
         }
       })
 
-      console.log(`Started ${startedCount} new models in parallel mode`)
-
-      // If no models were started but we have pending models, check if we're stuck
-      if (startedCount === 0 && pendingModels.length > 0) {
-        console.log("No new models started in parallel mode, checking for issues...")
-        pendingModels.forEach((model) => {
-          debugModelDependencyStatus(model.id)
-        })
-      }
+      // This is the correct implementation, but we need to make sure it's being used properly
+      // No changes needed to this section, as it already checks for dependencies on breakpointed models
     } else {
       // SEQUENTIAL EXECUTION MODE
       console.log("In sequential mode, finding next model to run")
@@ -931,6 +1041,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       }
 
       console.log(`Completed model index in sequence: ${completedIndex}`)
+      let foundModelToRun = false
 
       // Find the next model that can run
       for (let i = completedIndex + 1; i < sequence.length; i++) {
@@ -950,6 +1061,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
         if (canModelRun(nextModel.id)) {
           console.log(`Running next model in sequence: ${nextModel.id}`)
           runModel(nextModel.id)
+          foundModelToRun = true
           return // Only run one model at a time in sequential mode
         } else {
           console.log(`Next model ${nextModel.id} cannot run yet, dependencies not met`)
@@ -957,7 +1069,12 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
         }
       }
 
-      console.log("No more models can run in the sequence")
+      if (!foundModelToRun) {
+        console.log("No more models can run in the sequence")
+
+        // Check if all models are completed or stuck
+        setTimeout(() => verifyRunCompletionStatus(), 1000)
+      }
     }
   }
 
@@ -969,18 +1086,102 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       return
     }
 
+    // SAFETY CHECK: If the model is already marked as completed, don't process it again
+    if (model.status === "completed" && completedModelsRef.current.has(modelId)) {
+      console.log(`Model ${modelId} is already completed, skipping redundant completion`)
+      return
+    }
+
     console.log(`Completing model ${modelId}`)
 
     const endTime = Date.now()
     const executionTime = model.startTime ? (endTime - model.startTime) / 1000 : null
 
-    // Update model status to completed
+    // Generate or update output values
+    const updatedOutputs = model.outputs ? [...model.outputs] : []
+
+    // For each output, store the previous value before updating
+    updatedOutputs.forEach((output) => {
+      // Store the previous value for change detection
+      output.previousValue = output.value
+
+      // Keep existing value if it's already set and not empty
+      if (output.value !== null && output.value !== undefined && output.value !== "") {
+        // Value already exists, just mark as changed
+        output.changed = true
+      } else {
+        // If the output doesn't have a value yet, use the initial value or generate one
+        if (output.value === null || output.value === undefined || output.value === "") {
+          // First try to use the existing value as is
+          if (typeof output.value === "string" && output.value !== "") {
+            // Keep existing string value
+          }
+          // Next try to use the baseValue if available
+          else if (output.baseValue !== undefined) {
+            if (typeof output.baseValue === "number" || !isNaN(Number(output.baseValue))) {
+              const baseValue = typeof output.baseValue === "number" ? output.baseValue : Number(output.baseValue)
+
+              // Add some randomness to make it look realistic
+              const fluctuation = (Math.random() - 0.5) * 0.2 * baseValue
+              output.value = (baseValue + fluctuation).toFixed(2)
+            } else {
+              // For non-numeric baseValue
+              output.value = output.baseValue
+            }
+          }
+          // Finally, just use the value directly if it's a string or number
+          else if (typeof output.value === "string" || typeof output.value === "number") {
+            // Keep as is
+          } else {
+            // As a last resort for test models, use the name to create a predictable value
+            if (model.id.startsWith("test-model")) {
+              output.value = output.value || "42" // Test models should always have 42 as default
+            } else {
+              output.value = Math.round(Math.random() * 100).toString()
+            }
+          }
+        }
+
+        // Mark this output as changed
+        output.changed = true
+      }
+    })
+
+    // Update model status to completed with proper output values
     updateModelGroup(modelId, {
       status: "completed",
       progress: 100,
       endTime,
       executionTime,
+      outputs: updatedOutputs,
     })
+
+    // Show a toast notification with output values
+    try {
+      // Check if we have access to the toast function
+      if (typeof window !== "undefined" && window.toast) {
+        const updatedModel = getModelById(modelId)
+        if (updatedModel) {
+          let outputInfo = ""
+          if (updatedModel.outputs && updatedModel.outputs.length > 0) {
+            outputInfo = updatedModel.outputs
+              .map((output) => {
+                const changeIndicator = output.changed ? " 🔄" : ""
+                return `${output.name}: ${output.value || "—"}${output.unit ? " " + output.unit : ""}${changeIndicator}`
+              })
+              .join("\n")
+          }
+
+          window.toast({
+            title: `${updatedModel.name} completed`,
+            description: outputInfo ? `Outputs:\n${outputInfo}` : "Model execution completed successfully",
+            duration: 5000,
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Error showing toast notification:", error)
+    }
 
     // Remove from running models set
     runningModelsRef.current.delete(modelId)
@@ -994,12 +1195,56 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     setSimulationState((prev) => {
       const completedModels = new Set(prev.completedModels)
       completedModels.add(modelId)
-      // IMPORTANT: Preserve the running state - don't modify it here
       return { ...prev, completedModels }
     })
 
+    console.log(
+      `Model ${modelId} completed in ${executionTime !== null ? executionTime + "s" : "null (time calculation error)"}`,
+    )
+
+    // Ensure the model is properly marked as completed in all tracking mechanisms
+    if (!completedModelsRef.current.has(modelId)) {
+      console.log(`Force adding ${modelId} to completed models set`)
+      completedModelsRef.current.add(modelId)
+    }
+
+    if (!processedModelsRef.current.has(modelId)) {
+      console.log(`Force adding ${modelId} to processed models set`)
+      processedModelsRef.current.add(modelId)
+    }
+
+    if (!currentExecutionRef.current.processedModels.has(modelId)) {
+      console.log(`Force adding ${modelId} to current execution processed models set`)
+      currentExecutionRef.current.processedModels.add(modelId)
+    }
+
     console.log(`Model ${modelId} completed in ${executionTime}s`)
-    console.log(`Simulation running state: ${simulationState.running}`)
+
+    // Check if this was the last model to complete
+    const sequence = getExecutionSequence()
+    const completedCount = sequence.filter((m) => m.status === "completed" || isModelFrozen(m.id) || !m.enabled).length
+    const totalCount = sequence.length
+
+    console.log(`Completion check: ${completedCount}/${totalCount} models completed or frozen`)
+
+    if (completedCount === totalCount) {
+      console.log("All models have completed or are frozen, ending simulation")
+
+      // Immediately update the DOM attribute to prevent further execution
+      document.documentElement.removeAttribute("data-simulation-running")
+      console.log("Removed data-simulation-running attribute")
+
+      // Force a dormant state
+      simulationState.dormant = true
+
+      // Update React state
+      setSimulationState((prev) => ({
+        ...prev,
+        running: false,
+        runState: "MAIN_COMPLETE" as RunState,
+        dormant: true,
+      }))
+    }
 
     // Clear any timeouts for this model
     if (timeoutsRef.current) {
@@ -1021,13 +1266,11 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     if (model.breakpoint) {
       console.log(`Breakpoint hit on model ${modelId}`)
 
-      // Pause the entire simulation
-      pauseExecution()
-
       // Mark which model caused the pause
       setSimulationState((prev) => ({
         ...prev,
         pausedOnModel: modelId,
+        // Don't set paused: true here, as we only want to pause this specific model
       }))
 
       // Add to paused models set
@@ -1036,56 +1279,25 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       // IMPORTANT: Set a data attribute to indicate a breakpoint is active
       document.documentElement.setAttribute("data-breakpoint-active", modelId)
 
+      // Don't set dormant state here - we want non-dependent models to continue running
+
       console.log(`Execution paused at breakpoint on model ${modelId}`)
-      return // Don't continue execution after a breakpoint
+
+      // Continue checking for non-dependent models that can run
+      setTimeout(() => checkAndRunDependentModels(modelId), 0)
+      return // Don't continue execution for dependent models
     }
 
-    // IMPORTANT: We need to force a check of the current simulation state
-    // Get the current simulation state directly instead of using the stale closure value
-    const isRunning = document.querySelector("[data-simulation-running='true']") !== null
-    console.log(`Force checked simulation running state: ${isRunning}`)
+    // Check for dependent models only if we're still running
+    const isRunning = document.documentElement.getAttribute("data-simulation-running") === "true"
+    const isPaused = simulationState.paused || document.documentElement.getAttribute("data-breakpoint-active") !== null
 
-    // Only check and run dependent models if the simulation is still running and not paused
-    if (isRunning) {
+    if (isRunning && !isPaused && !simulationState.dormant) {
       console.log(`Checking for models that can run after completion of ${modelId}`)
-      // Use setTimeout to ensure this runs after state updates are processed
+      // Use setTimeout with 0 delay to avoid stack overflow with deep chains
       setTimeout(() => checkAndRunDependentModels(modelId), 0)
     } else {
-      console.log(`Simulation is not running, not checking for next models`)
-    }
-
-    // Check if all models are completed - do this check regardless of the isRunning state
-    // to ensure we don't miss completion detection
-    const sequence = getExecutionSequence()
-
-    // Count models that are either completed or frozen
-    const completedOrFrozenCount = sequence.filter(
-      (m) => m.status === "completed" || isModelFrozen(m.id) || !m.enabled || m.status === "disabled",
-    ).length
-
-    const allCompleted = completedOrFrozenCount === sequence.length
-
-    // Force check the simulation state directly from the DOM attribute
-    const isRunningFromDOM = document.documentElement.getAttribute("data-simulation-running") === "true"
-
-    // Log detailed completion status for debugging
-    console.log(`Completion check: All completed or frozen: ${allCompleted}, Running state: ${isRunningFromDOM}`)
-    console.log(`Completed/frozen models: ${completedOrFrozenCount}/${sequence.length}`)
-
-    if (allCompleted && (isRunningFromDOM || simulationState.running)) {
-      console.log("All models completed or frozen, transitioning to MAIN_COMPLETE state")
-
-      // Update both runState and running flag to ensure UI updates correctly
-      setSimulationState((prev) => ({
-        ...prev,
-        runState: "MAIN_COMPLETE" as RunState,
-        running: false, // Explicitly set running to false
-      }))
-
-      // Also remove the data-simulation-running attribute to ensure consistency
-      document.documentElement.removeAttribute("data-simulation-running")
-
-      console.log("Simulation running state set to false")
+      console.log(`Skipping dependent model check - simulation is not running or is paused or dormant`)
     }
   }
 
@@ -1192,13 +1404,37 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     // Clear paused model state
     setSimulationState((prev) => ({
       ...prev,
-      paused: false,
       pausedOnModel: null,
     }))
 
+    // Add a more explicit log to help with debugging
+    console.log("Breakpoint cleared, document attribute removed, checking for models that can run")
+
     // Resume execution by checking for dependent models
     setTimeout(() => {
-      checkAndRunDependentModels(modelId)
+      // Ensure we're still in a running state
+      if (document.documentElement.getAttribute("data-simulation-running") === "true") {
+        // Mark the model as fully completed so its outputs can be used
+        const model = getModelById(modelId)
+        if (model) {
+          // Make sure the model is marked as completed in all tracking sets
+          completedModelsRef.current.add(modelId)
+          processedModelsRef.current.add(modelId)
+          currentExecutionRef.current.processedModels.add(modelId)
+
+          // Update simulation state with completed model
+          setSimulationState((prev) => {
+            const completedModels = new Set(prev.completedModels)
+            completedModels.add(modelId)
+            return { ...prev, completedModels }
+          })
+        }
+
+        // Now check for models that can run
+        checkAndRunDependentModels(modelId)
+      } else {
+        console.log("Cannot continue: simulation is no longer running")
+      }
     }, 0)
   }
 
@@ -1220,10 +1456,14 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     // Reset outputs before running
     resetOutputs()
 
+    // EXPLICIT: Set dormant to false immediately
+    simulationState.dormant = false
+
     // Force rebuild the execution sequence
     executionSequenceDirty.current = true
+    currentExecutionRef.current.lastRebuildTime = null
 
-    // Get execution sequence or parallel groups
+    // Get execution sequence or parallel groups with a single forced rebuild
     const sequence = getExecutionSequence()
     const parallelGroups = getParallelExecutionGroups()
 
@@ -1275,6 +1515,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
         iterationCount: 0,
         completedModels: new Set(),
         runState: "INITIATED" as RunState,
+        dormant: false, // Set dormant to false when starting a run
       }
     })
 
@@ -1283,8 +1524,6 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     runningModulesRef.current = new Set()
     completedModelsRef.current = new Set()
     processedModelsRef.current = new Set()
-
-    // Store execution details in ref
     currentExecutionRef.current = {
       ...currentExecutionRef.current,
       parallel,
@@ -1298,6 +1537,8 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       processedModels: new Set(),
       processedModules: new Set(),
       dependencyMap: new Map(),
+      verifying: false, // Initialize verifying flag
+      rebuildLocked: false,
     }
 
     // Update run state to RUNNING
@@ -1340,193 +1581,206 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
 
   // Function to add test models
   function addTestModels() {
+    console.log("addTestModels called - checking for existing test models")
+
     // Check if test models already exist
     const testModelExists = modelGroups.some((model) => model.id.startsWith("test-model-"))
     if (testModelExists) {
-      console.log("Test models already exist")
+      console.log("Test models already exist, not adding again")
       return
     }
 
-    // Create test models
-    const testModels = [
-      {
-        id: "test-model-1",
-        name: "Test Model 1",
-        description: "A test model with no dependencies",
-        status: "idle",
-        progress: 0,
-        enabled: true,
-        frozen: false,
-        breakpoint: false,
-        priority: 5,
-        executionTime: null,
-        startTime: null,
-        endTime: null,
-        modules: [
-          {
-            id: "test-module-1-1",
-            name: "Test Module 1.1",
-            status: "idle",
-            enabled: true,
-            optional: false,
-            description: "A test module in Test Model 1",
-            inputs: [],
-            outputs: [
-              {
-                name: "Test Output 1",
-                value: "42",
-                unit: "",
-                description: "A test output",
-                consumers: ["Test Module 2.1"],
-              },
-            ],
-            dependencies: [],
-            dependents: ["test-module-2-1"],
-          },
-        ],
-        outputs: [{ name: "Test Output", value: "42", unit: "" }],
-        dependencies: [],
-        dependents: ["test-model-2"],
-        optional: false,
-      },
-      {
-        id: "test-model-2",
-        name: "Test Model 2",
-        description: "A test model that depends on Test Model 1",
-        status: "idle",
-        progress: 0,
-        enabled: true,
-        frozen: false,
-        breakpoint: false,
-        priority: 4,
-        executionTime: null,
-        startTime: null,
-        endTime: null,
-        modules: [
-          {
-            id: "test-module-2-1",
-            name: "Test Module 2.1",
-            status: "idle",
-            enabled: true,
-            optional: false,
-            description: "A test module in Test Model 2",
-            inputs: [
-              {
-                id: "test-input-2-1",
-                name: "Test Input",
-                description: "Input from Test Model 1",
-                type: "number",
-                value: 42,
-                min: 0,
-                max: 100,
-                step: 1,
-                unit: "",
-                source: "Test Module 1.1",
-              },
-            ],
-            outputs: [
-              {
-                name: "Test Output 2",
-                value: "84",
-                unit: "",
-                description: "A test output",
-                consumers: ["Test Module 3.1"],
-              },
-            ],
-            dependencies: ["test-module-1-1"],
-            dependents: ["test-module-3-1"],
-          },
-        ],
-        outputs: [{ name: "Test Output", value: "84", unit: "" }],
-        dependencies: ["test-model-1"],
-        dependents: ["test-model-3"],
-        optional: false,
-      },
-      {
-        id: "test-model-3",
-        name: "Test Model 3",
-        description: "A test model that depends on Test Model 2",
-        status: "idle",
-        progress: 0,
-        enabled: true,
-        frozen: false,
-        breakpoint: false,
-        priority: 3,
-        executionTime: null,
-        startTime: null,
-        endTime: null,
-        modules: [
-          {
-            id: "test-module-3-1",
-            name: "Test Module 3.1",
-            status: "idle",
-            enabled: true,
-            optional: false,
-            description: "A test module in Test Model 3",
-            inputs: [
-              {
-                id: "test-input-3-1",
-                name: "Test Input",
-                description: "Input from Test Model 2",
-                type: "number",
-                value: 84,
-                min: 0,
-                max: 200,
-                step: 1,
-                unit: "",
-                source: "Test Module 2.1",
-              },
-            ],
-            outputs: [
-              {
-                name: "Test Output 3",
-                value: "168",
-                unit: "",
-                description: "A test output",
-                consumers: [],
-              },
-            ],
-            dependencies: ["test-module-2-1"],
-            dependents: [],
-          },
-        ],
-        outputs: [{ name: "Test Output", value: "168", unit: "" }],
-        dependencies: ["test-model-2"],
-        dependents: [],
-        optional: false,
-      },
-    ]
+    console.log("Creating test models...")
 
-    // Add test models to the beginning of the model groups
-    setModelGroups((prevGroups) => [...testModels, ...prevGroups])
-    console.log("Added test models")
+    try {
+      // Create test models
+      const testModels = [
+        {
+          id: "test-model-1",
+          name: "Test Model 1",
+          description: "A test model with no dependencies",
+          status: "idle",
+          progress: 0,
+          enabled: true,
+          frozen: false,
+          breakpoint: false,
+          priority: 5,
+          executionTime: null,
+          startTime: null,
+          endTime: null,
+          modules: [
+            {
+              id: "test-module-1-1",
+              name: "Test Module 1.1",
+              status: "idle",
+              enabled: true,
+              optional: false,
+              description: "A test module in Test Model 1",
+              inputs: [],
+              outputs: [
+                {
+                  name: "Test Output 1",
+                  value: "42",
+                  unit: "",
+                  description: "A test output",
+                  consumers: ["Test Module 2.1"],
+                },
+              ],
+              dependencies: [],
+              dependents: ["test-module-2-1"],
+            },
+          ],
+          outputs: [{ name: "Test Output", value: "42", unit: "" }],
+          dependencies: [],
+          dependents: ["test-model-2"],
+          optional: false,
+        },
+        {
+          id: "test-model-2",
+          name: "Test Model 2",
+          description: "A test model that depends on Test Model 1",
+          status: "idle",
+          progress: 0,
+          enabled: true,
+          frozen: false,
+          breakpoint: false,
+          priority: 4,
+          executionTime: null,
+          startTime: null,
+          endTime: null,
+          modules: [
+            {
+              id: "test-module-2-1",
+              name: "Test Module 2.1",
+              status: "idle",
+              enabled: true,
+              optional: false,
+              description: "A test module in Test Model 2",
+              inputs: [
+                {
+                  id: "test-input-2-1",
+                  name: "Test Input",
+                  description: "Input from Test Model 1",
+                  type: "number",
+                  value: 42,
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  unit: "",
+                  source: "Test Module 1.1",
+                },
+              ],
+              outputs: [
+                {
+                  name: "Test Output 2",
+                  value: "84",
+                  unit: "",
+                  description: "A test output",
+                  consumers: ["Test Module 3.1"],
+                },
+              ],
+              dependencies: ["test-module-1-1"],
+              dependents: ["test-module-3-1"],
+            },
+          ],
+          outputs: [{ name: "Test Output", value: "84", unit: "" }],
+          dependencies: ["test-model-1"],
+          dependents: ["test-model-3"],
+          optional: false,
+        },
+        {
+          id: "test-model-3",
+          name: "Test Model 3",
+          description: "A test model that depends on Test Model 2",
+          status: "idle",
+          progress: 0,
+          enabled: true,
+          frozen: false,
+          breakpoint: false,
+          priority: 3,
+          executionTime: null,
+          startTime: null,
+          endTime: null,
+          modules: [
+            {
+              id: "test-module-3-1",
+              name: "Test Module 3.1",
+              status: "idle",
+              enabled: true,
+              optional: false,
+              description: "A test module in Test Model 3",
+              inputs: [
+                {
+                  id: "test-input-3-1",
+                  name: "Test Input",
+                  description: "Input from Test Model 2",
+                  type: "number",
+                  value: 84,
+                  min: 0,
+                  max: 200,
+                  step: 1,
+                  unit: "",
+                  source: "Test Module 2.1",
+                },
+              ],
+              outputs: [
+                {
+                  name: "Test Output 3",
+                  value: "168",
+                  unit: "",
+                  description: "A test output",
+                  consumers: [],
+                },
+              ],
+              dependencies: ["test-module-2-1"],
+              dependents: [],
+            },
+          ],
+          outputs: [{ name: "Test Output", value: "168", unit: "" }],
+          dependencies: ["test-model-2"],
+          dependents: [],
+          optional: false,
+        },
+      ]
 
-    // Update execution order to include test models
-    setExecutionOrder((prevOrder) => {
-      const newOrder = [...prevOrder]
-      // Add test models to the beginning if they don't exist
-      testModels.forEach((model) => {
-        if (!newOrder.includes(model.id)) {
-          newOrder.unshift(model.id)
-        }
+      // Add test models to the beginning of the model groups
+      setModelGroups((prevGroups) => {
+        console.log(`Adding ${testModels.length} test models to ${prevGroups.length} existing models`)
+        return [...testModels, ...prevGroups]
       })
-      return newOrder
-    })
 
-    // Mark execution sequence as dirty
-    executionSequenceDirty.current = true
+      console.log("Test models added to state")
+
+      // Update execution order to include test models
+      setExecutionOrder((prevOrder) => {
+        const newOrder = [...prevOrder]
+        // Add test models to the beginning if they don't exist
+        testModels.forEach((model) => {
+          if (!newOrder.includes(model.id)) {
+            newOrder.unshift(model.id)
+          }
+        })
+        console.log(`Updated execution order with test models: ${newOrder.join(", ")}`)
+        return newOrder
+      })
+
+      // Mark execution sequence as dirty
+      executionSequenceDirty.current = true
+      console.log("Test models successfully added")
+    } catch (error) {
+      console.error("Error adding test models:", error)
+    }
   }
 
   // Function to reset all outputs
   function resetOutputs() {
-    console.log("Resetting all outputs")
+    console.log("Resetting all outputs and state")
 
-    // Remove the data attribute when resetting
+    // AGGRESSIVE CLEANUP - Force remove all DOM state attributes
     document.documentElement.removeAttribute("data-simulation-running")
-    // Clear any breakpoint state
     document.documentElement.removeAttribute("data-breakpoint-active")
 
-    // Clear any pending timeouts
+    // Clear all timeouts and intervals immediately
     if (timeoutsRef.current) {
       timeoutsRef.current.forEach((timeout) => {
         if (typeof timeout === "number") {
@@ -1538,7 +1792,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       timeoutsRef.current.clear()
     }
 
-    // Reset all models to idle state
+    // Reset all models to idle state and clear outputs
     setModelGroups((prevGroups) =>
       prevGroups.map((model) => {
         // Reset model status
@@ -1553,19 +1807,52 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
           blockingDependencyName: null,
         }
 
-        // Reset module statuses if they exist
-        if (model.modules) {
-          updatedModel.modules = model.modules.map((module) => ({
-            ...module,
-            status: "idle",
+        // Clear model outputs - explicitly set to null or empty string
+        if (updatedModel.outputs) {
+          updatedModel.outputs = updatedModel.outputs.map((output) => ({
+            ...output,
+            value: null, // Set to null instead of empty string for clearer indication
+            previousValue: output.value, // Store previous value for comparison
           }))
+        }
+
+        // Reset module statuses and clear module outputs if they exist
+        if (model.modules) {
+          updatedModel.modules = model.modules.map((module) => {
+            const updatedModule = {
+              ...module,
+              status: "idle",
+            }
+
+            // Clear module outputs - explicitly set to null
+            if (updatedModule.outputs) {
+              updatedModule.outputs = updatedModule.outputs.map((output) => ({
+                ...output,
+                value: null, // Set to null instead of empty string
+                previousValue: output.value, // Store previous value for comparison
+              }))
+            }
+
+            return updatedModule
+          })
         }
 
         return updatedModel
       }),
     )
 
-    // Reset simulation state
+    // CRITICAL: Force state reset immediately, don't wait for React state update
+    simulationState.running = false
+    simulationState.paused = false
+    simulationState.pausedOnModel = null
+    simulationState.pausedOnModule = null
+    simulationState.failedModel = null
+    simulationState.completedModels = new Set()
+    simulationState.runState = "IDLE"
+    simulationState.frozenModels = new Set()
+    simulationState.dormant = true
+
+    // Update simulation state to ensure React state is also updated
     setSimulationState((prev) => ({
       ...prev,
       running: false,
@@ -1575,10 +1862,11 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
       failedModel: null,
       completedModels: new Set(),
       runState: "IDLE" as RunState,
-      frozenModels: new Set<string>(), // Clear frozen models on reset
+      frozenModels: new Set<string>(),
+      dormant: true,
     }))
 
-    // Reset execution refs
+    // Reset all execution references
     runningModelsRef.current = new Set()
     runningModulesRef.current = new Set()
     completedModelsRef.current = new Set()
@@ -1588,7 +1876,20 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     currentExecutionRef.current.pausedModels = new Set()
     currentExecutionRef.current.pausedModules = new Set()
 
-    console.log("All outputs reset")
+    // Reset the verifying flag
+    currentExecutionRef.current.verifying = false
+
+    // Reset execution sequence cache to force a clean rebuild
+    executionSequenceCache.current = []
+    parallelGroupsCache.current = []
+    executionSequenceDirty.current = true
+    currentExecutionRef.current.lastRebuildTime = null
+
+    // Force a clean state
+    console.log("All outputs and state reset completely")
+
+    // Return to ensure consistent cleanup
+    return true
   }
 
   // Function to toggle model enabled state
@@ -1620,17 +1921,45 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     const model = getModelById(modelId)
     if (!model) return
 
-    updateModelGroup(modelId, { breakpoint: !model.breakpoint })
-    console.log(`Breakpoint ${model.breakpoint ? "removed from" : "set on"} model ${modelId}`)
+    // Toggle the breakpoint state
+    const newBreakpointState = !model.breakpoint
+
+    // Update the model with the new breakpoint state and add a visual indicator
+    updateModelGroup(modelId, {
+      breakpoint: newBreakpointState,
+      // Add a visual indicator for breakpoints
+      breakpointActive: newBreakpointState,
+    })
+
+    console.log(`Breakpoint ${newBreakpointState ? "set on" : "removed from"} model ${modelId}`)
 
     // Update breakpoint models set
     const breakpointModels = new Set(currentExecutionRef.current.breakpointModels)
-    if (model.breakpoint) {
+    if (!newBreakpointState) {
       breakpointModels.delete(modelId)
     } else {
       breakpointModels.add(modelId)
+
+      // If we're setting a breakpoint and the model is already completed,
+      // we need to show a toast notification to inform the user
+      if (model.status === "completed") {
+        try {
+          if (typeof window !== "undefined" && window.toast) {
+            window.toast({
+              title: "Breakpoint set on completed model",
+              description: "This breakpoint will be active the next time the model runs",
+              duration: 5000,
+            })
+          }
+        } catch (error) {
+          console.error("Error showing toast notification:", error)
+        }
+      }
     }
     currentExecutionRef.current.breakpointModels = breakpointModels
+
+    // Force a UI refresh by marking the execution sequence as dirty
+    executionSequenceDirty.current = true
   }
 
   // Function to toggle module breakpoint
@@ -1745,41 +2074,168 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     }
   }
 
-  // Function to verify if a run should be completed
+  // Add a new function to completely stop all execution checks
+  function completeAllExecution() {
+    console.log("Forcing complete stop of all execution checks")
+
+    // Set dormant state immediately in the mutable object
+    simulationState.dormant = true
+
+    // Remove DOM attributes
+    document.documentElement.removeAttribute("data-simulation-running")
+    document.documentElement.removeAttribute("data-breakpoint-active")
+
+    // Clear all timeouts and intervals
+    if (timeoutsRef.current) {
+      timeoutsRef.current.forEach((timeout) => {
+        if (typeof timeout === "number") {
+          clearTimeout(timeout)
+        } else if (typeof timeout === "object") {
+          clearInterval(timeout)
+        }
+      })
+      timeoutsRef.current.clear()
+    }
+
+    // Reset execution refs
+    runningModelsRef.current = new Set()
+    runningModulesRef.current = new Set()
+
+    // Update React state
+    setSimulationState((prev) => ({
+      ...prev,
+      running: false,
+      paused: false,
+      dormant: true,
+      runState: "MAIN_COMPLETE" as RunState,
+    }))
+
+    return true
+  }
+
   function verifyRunCompletionStatus() {
-    // Only check if simulation is running
-    if (!simulationState.running) {
+    // If we're already checking or in dormant state, don't start another check
+    if (currentExecutionRef.current.verifying || simulationState.dormant) {
       return false
     }
 
     console.log("Verifying run completion status")
+    currentExecutionRef.current.verifying = true
 
-    // Get the execution sequence
-    const sequence = getExecutionSequence()
+    try {
+      // Get DOM state only once
+      const isRunningInDOM = document.documentElement.getAttribute("data-simulation-running") === "true"
+      const hasActiveBreakpoint = document.documentElement.getAttribute("data-breakpoint-active") !== null
 
-    // Check if all models are completed or frozen = getExecutionSequence()
+      if (!isRunningInDOM && !simulationState.running) {
+        console.log("Run is already marked as not running")
+        currentExecutionRef.current.verifying = false
+        return false
+      }
 
-    // Check if all models are completed or frozen
-    const allCompleted = sequence.every(
-      (m) => m.status === "completed" || !m.enabled || m.status === "disabled" || isModelFrozen(m.id),
-    )
+      // If there's an active breakpoint, don't mark the run as complete
+      if (hasActiveBreakpoint || currentExecutionRef.current.pausedModels.size > 0) {
+        console.log("Run has active breakpoints, not marking as complete")
+        currentExecutionRef.current.verifying = false
+        return false
+      }
 
-    console.log(
-      `Run completion check: All completed or frozen: ${allCompleted}, Models: ${completedModelsRef.current.size}/${sequence.length}`,
-    )
+      // Use cached sequence to avoid triggering rebuilds
+      const sequence =
+        executionSequenceCache.current.length > 0 ? executionSequenceCache.current : getExecutionSequence()
 
-    if (allCompleted) {
-      console.log("All models are completed or frozen, transitioning to MAIN_COMPLETE state")
+      if (sequence.length === 0) {
+        console.log("No models in execution sequence")
+        currentExecutionRef.current.verifying = false
+        return false
+      }
 
-      // Instead of ending the simulation, transition to MAIN_COMPLETE state
-      setSimulationState((prev) => ({
-        ...prev,
-        runState: "MAIN_COMPLETE" as RunState,
-      }))
-      return true
+      // Count models that are completed, frozen, or disabled
+      const completedCount = sequence.filter(
+        (model) =>
+          model.status === "completed" || isModelFrozen(model.id) || !model.enabled || model.status === "disabled",
+      ).length
+
+      // Count models that should be running
+      const runningCount = sequence.filter(
+        (model) => model.status === "running" && model.enabled && !isModelFrozen(model.id),
+      ).length
+
+      // Count models that are blocked/pending
+      const pendingCount = sequence.filter(
+        (model) => model.status === "blocked" || (model.status === "idle" && model.enabled && !isModelFrozen(model.id)),
+      ).length
+
+      console.log(
+        `Run completion check: ${completedCount}/${sequence.length} models completed/disabled/frozen, ` +
+          `${runningCount} running, ${pendingCount} pending/blocked`,
+      )
+
+      const runningModelsArray = Array.from(runningModelsRef.current)
+      console.log(`Running models according to ref: ${runningModelsArray.length} (${runningModelsArray.join(", ")})`)
+
+      // IMPORTANT: Only mark the run as complete if ALL models are completed/frozen/disabled
+      // AND there are no pending models that are blocked by breakpoints
+      if (completedCount === sequence.length && pendingCount === 0) {
+        console.log("All models are completed/frozen/disabled, ending simulation")
+
+        // Immediately remove the data attribute
+        document.documentElement.removeAttribute("data-simulation-running")
+
+        // Force dormant state immediately
+        simulationState.dormant = true
+
+        // Update React state
+        setSimulationState((prev) => ({
+          ...prev,
+          running: false,
+          dormant: true,
+          runState: "MAIN_COMPLETE" as RunState,
+        }))
+
+        // Clear all timeouts and intervals
+        if (timeoutsRef.current) {
+          timeoutsRef.current.forEach((timeout) => {
+            if (typeof timeout === "number") {
+              clearTimeout(timeout)
+            } else if (typeof timeout === "object") {
+              clearInterval(timeout)
+            }
+          })
+          timeoutsRef.current.clear()
+        }
+
+        currentExecutionRef.current.verifying = false
+        return true
+      }
+
+      // If there are no running models but there are pending models,
+      // check if we're stuck due to a breakpoint that was removed
+      if (runningCount === 0 && pendingCount > 0 && !hasActiveBreakpoint) {
+        console.log("No models running but pending models exist - checking if we need to restart execution")
+
+        // Find a pending model that can run and start it
+        const pendingModels = sequence.filter(
+          (model) =>
+            model.status !== "completed" && model.status !== "running" && model.enabled && !isModelFrozen(model.id),
+        )
+
+        for (const model of pendingModels) {
+          if (canModelRun(model.id)) {
+            console.log(`Found pending model ${model.id} that can run, starting it`)
+            runModel(model.id)
+            break
+          }
+        }
+      }
+
+      currentExecutionRef.current.verifying = false
+      return false
+    } catch (error) {
+      console.error("Error during run completion verification:", error)
+      currentExecutionRef.current.verifying = false
+      return false
     }
-
-    return false
   }
 
   function checkAndRunFinancialModels() {
@@ -1790,7 +2246,12 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
 
   // Add test models on initial render
   useEffect(() => {
-    addTestModels()
+    console.log("Initial render effect - adding test models")
+    try {
+      addTestModels()
+    } catch (error) {
+      console.error("Error in addTestModels effect:", error)
+    }
   }, [])
 
   // Load state from localStorage on initial render
@@ -1900,6 +2361,7 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     setSimulationState((prev) => ({
       ...prev,
       runState: "ADJUSTMENTS" as RunState,
+      dormant: false, // When adjusting, the run is no longer dormant
     }))
   }
 
@@ -1911,6 +2373,14 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     if (simulationState.runState !== "MAIN_COMPLETE" && simulationState.runState !== "ADJUSTMENTS") {
       console.log(`Cannot finalize run from ${simulationState.runState} state`)
       return
+    }
+
+    // Set the end time if not already set
+    if (!simulationState.runEndTime) {
+      setSimulationState((prev) => ({
+        ...prev,
+        runEndTime: Date.now(),
+      }))
     }
 
     // End the simulation with FINALIZED state
@@ -1968,6 +2438,49 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
   function canModelBeFrozen(modelId: string): boolean {
     const model = getModelById(modelId)
     return model?.status === "completed"
+  }
+
+  // Function to check if the run is dormant
+  function isDormant() {
+    return simulationState.dormant
+  }
+
+  function forceDormantState() {
+    console.log("Forcing transition to dormant state")
+
+    // AGGRESSIVE CLEANUP - Force remove all DOM state attributes
+    document.documentElement.removeAttribute("data-simulation-running")
+    document.documentElement.removeAttribute("data-breakpoint-active")
+
+    // Clear all timeouts and intervals
+    if (timeoutsRef.current) {
+      timeoutsRef.current.forEach((timeout) => {
+        if (typeof timeout === "number") {
+          clearTimeout(timeout)
+        } else if (typeof timeout === "object") {
+          clearInterval(timeout)
+        }
+      })
+      timeoutsRef.current.clear()
+    }
+
+    // Reset all execution references
+    runningModelsRef.current = new Set()
+    runningModulesRef.current = new Set()
+
+    // Force dormant state immediately
+    simulationState.dormant = true
+
+    // Update the React state
+    setSimulationState((prev) => ({
+      ...prev,
+      running: false,
+      paused: false,
+      dormant: true,
+      runState: "MAIN_COMPLETE" as RunState,
+    }))
+
+    return true
   }
 
   const value: ModelStateContextType = {
@@ -2032,7 +2545,28 @@ export function ModelStateProvider({ children }: { children: React.ReactNode }) 
     isModelFrozen,
     getFrozenModels,
     canModelBeFrozen,
+    isDormant,
+    forceDormantState,
+    completeAllExecution,
+    simulationState,
   }
+
+  // Effect to monitor for stuck runs
+  useEffect(() => {
+    if (!simulationState.running || simulationState.dormant) {
+      return // Don't monitor if not running or in dormant state
+    }
+
+    // Check every 3 seconds if the run is stuck (reduced from 5 seconds)
+    const intervalId = setInterval(() => {
+      if (runningModelsRef.current.size === 0 && simulationState.running) {
+        console.log("Detected possible stuck run - no models running but run state is active")
+        verifyRunCompletionStatus()
+      }
+    }, 3000)
+
+    return () => clearInterval(intervalId)
+  }, [simulationState.running, simulationState.dormant])
 
   return <ModelStateContext.Provider value={value}>{children}</ModelStateContext.Provider>
 }

@@ -1,0 +1,20 @@
+/* Add styles to make breakpoints more visible immediately */
+.breakpoint-indicator {
+  position: relative;
+}
+
+.breakpoint-indicator::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  background-color: #ef4444;
+  border-radius: 2px;
+}
+
+.model-card.has-breakpoint {
+  border-left: 4px solid #ef4444 !important;
+  background-color: rgba(254, 226, 226, 0.2);
+}

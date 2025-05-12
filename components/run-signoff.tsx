@@ -22,6 +22,7 @@ export function RunSignoff() {
     getRunEndTime,
     getIterationCount,
     getExecutionSequence,
+    finalizeRun,
   } = useModelState()
 
   const [comments, setComments] = useState("")
@@ -46,11 +47,19 @@ export function RunSignoff() {
   }
 
   const handleSignoff = () => {
-    // In a real app, this would call an API to record the signoff
+    // Call finalizeRun to properly end the simulation and update all state
+    finalizeRun()
+
+    // In a real app, this would also call an API to record the signoff
     toast({
       title: "Run signed off successfully",
       description: `Run #${runId} has been signed off by the current user.`,
     })
+
+    // Force a refresh of the UI to show the finalized state
+    setTimeout(() => {
+      window.location.href = "/dashboard"
+    }, 1500)
   }
 
   const allChecksComplete = Object.values(signoffChecks).every(Boolean)

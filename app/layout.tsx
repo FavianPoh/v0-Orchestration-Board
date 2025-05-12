@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { Toaster } from "@/components/toaster"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ModelStateProvider } from "@/context/model-state-context"
+import { TopNavigation } from "@/components/top-navigation"
 
 const fontSans = FontSans({
   subsets: ["latin"],
@@ -17,7 +18,10 @@ export default function RootLayout({ children }) {
       <body className={cn("min-h-screen bg-background font-sans antialiased", fontSans.variable)}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <ModelStateProvider>
-            {children}
+            <div className="min-h-screen">
+              <TopNavigation />
+              <main>{children}</main>
+            </div>
             <Toaster />
           </ModelStateProvider>
         </ThemeProvider>

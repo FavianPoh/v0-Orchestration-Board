@@ -1,11 +1,36 @@
+"use client"
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
-import { BarChart3, PlayCircle, Sliders } from "lucide-react"
+import { BarChart3, PlayCircle, Sliders, RefreshCw } from "lucide-react"
 
 export default function Home() {
   return (
     <div className="container mx-auto p-6">
+      <div className="fixed bottom-4 right-4 z-50">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            // Force remove any problematic attributes
+            document.documentElement.removeAttribute("data-simulation-running")
+            document.documentElement.removeAttribute("data-breakpoint-active")
+
+            // Clear localStorage to reset any persisted problematic state
+            localStorage.removeItem("modelState")
+            localStorage.removeItem("executionOrder")
+
+            console.log("Emergency reset triggered - cleared DOM attributes and localStorage")
+
+            // Force refresh the page
+            window.location.reload()
+          }}
+          title="Emergency Reset - Use if the app gets stuck"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" /> Emergency Reset
+        </Button>
+      </div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Welcome to FlowOrchestrator</h1>
         <p className="text-muted-foreground">

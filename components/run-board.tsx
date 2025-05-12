@@ -8,13 +8,38 @@ import { ModelExecutionDashboard } from "@/components/model-execution-dashboard"
 import { RunCompletionOptions } from "@/components/run-completion-options"
 import { useModelState } from "@/context/model-state-context"
 
-export function RunBoard({ modelGroups, onRunAll, onRunSelected, onResetOutputs }) {
+interface RunBoardProps {
+  modelGroups: any[]
+  onRunAll?: () => void
+  onRunSelected?: (modelId: string) => void
+  onResetOutputs?: () => void
+  parallelExecution?: boolean // Keep this prop
+  onToggleParallelExecution?: () => void
+}
+
+export function RunBoard({
+  modelGroups,
+  onRunAll,
+  onRunSelected,
+  onResetOutputs,
+  parallelExecution = false, // Keep this prop with default
+  onToggleParallelExecution,
+}: RunBoardProps) {
   const { getRunState, isSimulationRunning } = useModelState()
   const runState = getRunState()
   const isRunning = isSimulationRunning()
 
   // Check if run is in a state where completion options should be shown
   const showCompletionOptions = runState === "MAIN_COMPLETE" || runState === "ADJUSTMENTS" || runState === "FINALIZED"
+
+  // Function to toggle parallel execution mode
+  const handleToggleParallelExecution = () => {
+    // This is a placeholder - the actual toggle happens at the parent level
+    // We'll just pass this to the EnhancedExecutionSequence component
+    if (onToggleParallelExecution) {
+      onToggleParallelExecution()
+    }
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -53,7 +78,11 @@ export function RunBoard({ modelGroups, onRunAll, onRunSelected, onResetOutputs 
             <CardTitle className="text-base">Model Execution Sequence</CardTitle>
           </CardHeader>
           <CardContent className="p-3">
-            <EnhancedExecutionSequence modelGroups={modelGroups} />
+            <EnhancedExecutionSequence
+              modelGroups={modelGroups}
+              parallelExecution={parallelExecution} // Pass the prop here
+              onToggleParallelExecution={handleToggleParallelExecution}
+            />
           </CardContent>
         </Card>
       </div>

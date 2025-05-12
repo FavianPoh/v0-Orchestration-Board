@@ -1,29 +1,31 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Play, Pause, SkipForward, Settings, Zap } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Play, Pause, RefreshCw, Settings, SkipForward, Zap } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { useModelState } from "@/context/model-state-context"
 import { WorkflowGraph } from "@/components/workflow-graph"
+import { RunBoard } from "@/components/run-board"
+import { ConditionalDependencyEditor } from "@/components/conditional-dependency-editor"
 import { DependencyGraph } from "@/components/dependency-graph"
 import { DependencyAnalyzer } from "@/components/dependency-analyzer"
 import { ExecutionStatistics } from "@/components/execution-statistics"
-import { ConditionalDependencyEditor } from "@/components/conditional-dependency-editor"
-import { RunBoard } from "@/components/run-board"
-import { useToast } from "@/components/ui/use-toast"
-import { useModelState } from "@/context/model-state-context"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { RunSignoff } from "@/components/run-signoff"
 import { RunIteration } from "@/components/run-iteration"
 import { RunExport } from "@/components/run-export"
+import { RunCompletionOptions } from "@/components/run-completion-options"
+import { useRouter } from "next/navigation"
 
 export default function WorkflowsPage() {
   const [activeTab, setActiveTab] = useState("flowchart")
   const [selectedModelId, setSelectedModelId] = useState(null)
-  const [useParallelExecution, setUseParallelExecution] = useState(false)
+  const [useParallelExecution, setUseParallelExecution] = useState(true) // Default to parallel execution
   const { toast } = useToast()
   const {
     modelGroups,
@@ -46,7 +48,10 @@ export default function WorkflowsPage() {
     getRunHistory,
     getLastCompletedRunId,
     getIterationCount,
+    getRunState,
   } = useModelState()
+
+  const router = useRouter()
 
   const handleRunAll = () => {
     // Run all models with parallel execution setting
@@ -152,9 +157,9 @@ export default function WorkflowsPage() {
                 Resume
               </Button>
               {getPausedOnModel() && (
-                <Button onClick={handleContinueAfterBreakpoint}>
+                <Button onClick={handleContinueAfterBreakpoint} className="bg-amber-600 hover:bg-amber-700 text-white">
                   <SkipForward className="mr-2 h-4 w-4" />
-                  Continue Past Breakpoint
+                  Resume Run #{getRunId()?.substring(0, 4)}
                 </Button>
               )}
             </>
@@ -169,6 +174,11 @@ export default function WorkflowsPage() {
             <Settings className="mr-2 h-4 w-4" />
             Settings
           </Button>
+
+          <Button variant="outline" onClick={() => resetOutputs()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Reset All
+          </Button>
         </div>
       </div>
 
@@ -182,7 +192,32 @@ export default function WorkflowsPage() {
           <TabsTrigger value="signoff">Sign-off</TabsTrigger>
           <TabsTrigger value="iteration">Iteration</TabsTrigger>
           <TabsTrigger value="export">Export</TabsTrigger>
+          <TabsTrigger value="completion">Run Completion</TabsTrigger>
         </TabsList>
+
+        {/* Breakpoint Banner */}
+        {isSimulationPaused() && getPausedOnModel() && (
+          <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-md flex items-center justify-between">
+            <div className="flex items-center">
+              <div className="bg-amber-100 p-2 rounded-full mr-4">
+                <Pause className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <div className="font-bold text-amber-800">Run #{getRunId()?.substring(0, 8)} Paused at Breakpoint</div>
+                <div className="text-amber-700">
+                  Execution paused at model:{" "}
+                  {modelGroups.find((m) => m.id === getPausedOnModel())?.name || getPausedOnModel()}
+                </div>
+              </div>
+            </div>
+            <div>
+              <Button onClick={handleContinueAfterBreakpoint} className="bg-amber-600 hover:bg-amber-700 text-white">
+                <Play className="mr-2 h-4 w-4" />
+                Resume Run
+              </Button>
+            </div>
+          </div>
+        )}
 
         <TabsContent value="flowchart" className="mt-0">
           <Card>
@@ -192,6 +227,8 @@ export default function WorkflowsPage() {
                 onRunAll={handleRunAll}
                 onRunSelected={handleRunSelected}
                 onToggleBreakpoint={handleToggleBreakpoint}
+                parallelExecution={useParallelExecution}
+                onSelectModel={(modelId) => router.push(`/model-groups/${modelId}`)}
               />
             </CardContent>
           </Card>
@@ -203,6 +240,8 @@ export default function WorkflowsPage() {
             onRunAll={handleRunAll}
             onRunSelected={handleRunSelected}
             onResetOutputs={resetOutputs}
+            parallelExecution={useParallelExecution}
+            onToggleParallelExecution={() => setUseParallelExecution(!useParallelExecution)}
           />
         </TabsContent>
 
@@ -245,7 +284,7 @@ export default function WorkflowsPage() {
               <CardDescription>Automatically detect and configure dependencies between models</CardDescription>
             </CardHeader>
             <CardContent>
-              <DependencyAnalyzer modelGroups={modelGroups} />
+              <DependencyAnalyzer />
             </CardContent>
           </Card>
         </TabsContent>
@@ -294,6 +333,18 @@ export default function WorkflowsPage() {
             </CardHeader>
             <CardContent>
               <RunExport />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="completion" className="mt-0">
+          <Card>
+            <CardHeader>
+              <CardTitle>Run Completion Options</CardTitle>
+              <CardDescription>Manage completed run lifecycle and transition states</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RunCompletionOptions />
             </CardContent>
           </Card>
         </TabsContent>

@@ -156,9 +156,9 @@ export default function ModelGroupDetailsPage() {
   return (
     <div className="container mx-auto p-6">
       <div className="flex items-center mb-6">
-        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+        <Button variant="ghost" size="sm" onClick={() => router.push("/workflows")}>
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Back
+          Back to Workflows
         </Button>
         <div className="ml-2">
           <h1 className="text-2xl font-bold">{modelGroup.name}</h1>
