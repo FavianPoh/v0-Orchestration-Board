@@ -4,31 +4,22 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { useModelState } from "@/context/model-state-context"
-import { BarChart } from "@/components/ui/chart"
 import {
   Play,
   RefreshCw,
   AlertCircle,
-  CheckCircle,
   Sliders,
   BarChart2,
   Zap,
   Layers,
   Thermometer,
-  Percent,
-  Hash,
   ChevronRight,
-  ChevronDown,
   AlertTriangle,
   WormIcon as Virus,
   Briefcase,
@@ -38,10 +29,13 @@ import {
   Building,
   DollarSign,
   Cloud,
-  Info,
-  Snowflake,
+  CheckCircle,
 } from "lucide-react"
 import { SensitivityAnalysisHelp } from "@/components/sensitivity-analysis-help"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
+import { BarChart } from "@/components/ui/bar-chart"
 
 // Define types for sensitivity parameters and thresholds
 type ParameterThreshold = {
@@ -109,7 +103,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "financial-crisis-2008",
     name: "2008 Financial Crisis",
     description: "Simulates conditions similar to the 2008 global financial crisis",
-    severity: 85,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -3.5 },
       { parameterId: "unemployment-rate", changeType: "absolute", changeValue: 5.0 },
@@ -127,7 +121,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "trade-war",
     name: "Global Trade War",
     description: "Simulates impact of escalating tariffs and trade restrictions",
-    severity: 65,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -1.5 },
       { parameterId: "inflation-rate", changeType: "absolute", changeValue: 2.0 },
@@ -142,7 +136,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "pandemic",
     name: "Pandemic Scenario (SARS-like)",
     description: "Simulates economic impact of a global health crisis",
-    severity: 75,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -2.8 },
       { parameterId: "unemployment-rate", changeType: "absolute", changeValue: 3.5 },
@@ -157,7 +151,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "tech-boom",
     name: "Technology Boom",
     description: "Simulates accelerated growth in technology sector",
-    severity: 40, // Positive scenario, lower severity
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: 1.5 },
       { parameterId: "unemployment-rate", changeType: "absolute", changeValue: -1.0 },
@@ -172,7 +166,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "energy-crisis",
     name: "Energy Crisis",
     description: "Simulates impact of severe energy supply constraints",
-    severity: 70,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "inflation-rate", changeType: "absolute", changeValue: 4.0 },
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -2.0 },
@@ -186,7 +180,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "stagflation",
     name: "Stagflation Scenario",
     description: "Simulates high inflation combined with slow economic growth and high unemployment",
-    severity: 75,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -1.8 },
       { parameterId: "inflation-rate", changeType: "absolute", changeValue: 6.0 },
@@ -201,7 +195,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "sovereign-debt-crisis",
     name: "Sovereign Debt Crisis",
     description: "Simulates impact of government debt defaults and fiscal instability",
-    severity: 80,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "interest-rate", changeType: "absolute", changeValue: 4.0 },
       { parameterId: "risk-free-rate", changeType: "absolute", changeValue: 2.5 },
@@ -215,7 +209,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "currency-crisis",
     name: "Currency Crisis",
     description: "Simulates rapid devaluation of domestic currency",
-    severity: 70,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "inflation-rate", changeType: "absolute", changeValue: 8.0 },
       { parameterId: "interest-rate", changeType: "absolute", changeValue: 5.0 },
@@ -229,7 +223,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "economic-boom",
     name: "Economic Boom",
     description: "Simulates period of strong economic growth across sectors",
-    severity: 30, // Positive scenario, lower severity
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: 2.5 },
       { parameterId: "unemployment-rate", changeType: "absolute", changeValue: -2.0 },
@@ -244,7 +238,7 @@ const predefinedScenarios: SensitivityScenario[] = [
     id: "climate-transition",
     name: "Climate Transition",
     description: "Simulates economic impact of rapid transition to low-carbon economy",
-    severity: 60,
+    severity: 100, // Full severity
     parameterChanges: [
       { parameterId: "base-growth-rate", changeType: "absolute", changeValue: -0.8 },
       { parameterId: "market-volatility", changeType: "percentage", changeValue: 40 },
@@ -278,7 +272,7 @@ export function SensitivityAnalysisDashboard() {
   const [outputThresholds, setOutputThresholds] = useState<OutputMetricThreshold[]>([])
   const [activeTab, setActiveTab] = useState("parameters")
   const [selectedScenario, setSelectedScenario] = useState<string | null>(null)
-  const [scenarioSeverity, setScenarioSeverity] = useState(50)
+  // Removed severity slider state
   const [customScenario, setCustomScenario] = useState<SensitivityScenario | null>(null)
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false)
   const [approximationEnabled, setApproximationEnabled] = useState(true)
@@ -295,6 +289,8 @@ export function SensitivityAnalysisDashboard() {
   // After other state variables
   const [modelRunOptions, setModelRunOptions] = useState<{ [modelId: string]: "rerun" | "preserve" }>({})
   const [applyingChanges, setApplyingChanges] = useState(false)
+  const [originalAnalysisResults, setOriginalAnalysisResults] = useState<any | null>(null)
+  const [resultsReady, setResultsReady] = useState(false)
 
   // Initialize parameters from model groups
   useEffect(() => {
@@ -312,6 +308,7 @@ export function SensitivityAnalysisDashboard() {
             ...param,
             modelId: model.id,
             modelName: model.name,
+            originalValue: param.value, // Store original value for change tracking
           })
 
           // Create default threshold
@@ -360,6 +357,7 @@ export function SensitivityAnalysisDashboard() {
           id: "base-growth-rate",
           name: "Base Growth Rate",
           value: 2.5,
+          originalValue: 2.5, // Store original value
           min: -5,
           max: 10,
           step: 0.1,
@@ -377,6 +375,7 @@ export function SensitivityAnalysisDashboard() {
           id: "interest-rate",
           name: "Interest Rate",
           value: 4.5,
+          originalValue: 4.5, // Store original value
           min: 0,
           max: 20,
           step: 0.25,
@@ -394,6 +393,7 @@ export function SensitivityAnalysisDashboard() {
           id: "current-assets",
           name: "Current Assets",
           value: 1250000,
+          originalValue: 1250000,
           min: 0,
           max: 10000000,
           step: 10000,
@@ -411,6 +411,7 @@ export function SensitivityAnalysisDashboard() {
           id: "money-supply-growth",
           name: "Money Supply Growth",
           value: 3.8,
+          originalValue: 3.8,
           min: -2,
           max: 15,
           step: 0.1,
@@ -428,6 +429,7 @@ export function SensitivityAnalysisDashboard() {
           id: "current-liabilities",
           name: "Current Liabilities",
           value: 850000,
+          originalValue: 850000,
           min: 0,
           max: 5000000,
           step: 10000,
@@ -445,6 +447,7 @@ export function SensitivityAnalysisDashboard() {
           id: "labor-force-participation",
           name: "Labor Force Participation",
           value: 62.4,
+          originalValue: 62.4,
           min: 55,
           max: 75,
           step: 0.1,
@@ -462,6 +465,7 @@ export function SensitivityAnalysisDashboard() {
           id: "corporate-earnings",
           name: "Corporate Earnings",
           value: 780000,
+          originalValue: 780000,
           min: 0,
           max: 5000000,
           step: 10000,
@@ -479,6 +483,7 @@ export function SensitivityAnalysisDashboard() {
           id: "asset-growth-multiplier",
           name: "Asset Growth Multiplier",
           value: 1.5,
+          originalValue: 1.5,
           min: 0.5,
           max: 5,
           step: 0.1,
@@ -496,6 +501,7 @@ export function SensitivityAnalysisDashboard() {
           id: "default-correlation",
           name: "Default Correlation",
           value: 0.35,
+          originalValue: 0.35,
           min: 0,
           max: 1,
           step: 0.01,
@@ -513,6 +519,7 @@ export function SensitivityAnalysisDashboard() {
           id: "cash-flow-projection",
           name: "Cash Flow Projection",
           value: 420000,
+          originalValue: 420000,
           min: -1000000,
           max: 2000000,
           step: 10000,
@@ -530,6 +537,7 @@ export function SensitivityAnalysisDashboard() {
           id: "risk-free-rate",
           name: "Risk-Free Rate",
           value: 2.8,
+          originalValue: 2.8,
           min: 0,
           max: 10,
           step: 0.1,
@@ -547,6 +555,7 @@ export function SensitivityAnalysisDashboard() {
           id: "inflation-rate",
           name: "Inflation Rate",
           value: 3.2,
+          originalValue: 3.2,
           min: 0,
           max: 15,
           step: 0.1,
@@ -564,6 +573,7 @@ export function SensitivityAnalysisDashboard() {
           id: "unemployment-rate",
           name: "Unemployment Rate",
           value: 5.8,
+          originalValue: 5.8,
           min: 0,
           max: 25,
           step: 0.1,
@@ -581,6 +591,7 @@ export function SensitivityAnalysisDashboard() {
           id: "market-volatility",
           name: "Market Volatility",
           value: 15,
+          originalValue: 15,
           min: 0,
           max: 100,
           step: 1,
@@ -619,10 +630,31 @@ export function SensitivityAnalysisDashboard() {
     setOutputThresholds(outThresholds)
   }, [modelGroups])
 
-  // Handle parameter value change
+  // Add this function to handle parameter changes after a run
+  // Find the handleParameterChange function and replace it with this version:
   const handleParameterChange = (id: string, value: number) => {
+    // Log the change with more details
+    console.log(`handleParameterChange: ${id} = ${value} (after run: ${getRunState() !== "IDLE"})`)
+
     setParameters((prevParams) =>
-      prevParams.map((param) => (param.id === id ? { ...param, value, changed: true } : param)),
+      prevParams.map((param) => {
+        if (param.id === id) {
+          const originalValue = param.originalValue !== undefined ? param.originalValue : param.value
+          const changedAmount = value - originalValue
+          const changed = Math.abs(changedAmount) > 0.0001
+
+          // Create a new parameter object with the updated value
+          return {
+            ...param,
+            value,
+            changed,
+            changedAmount,
+            // Mark this as explicitly changed by the user after a run
+            userChangedAfterRun: getRunState() !== "IDLE",
+          }
+        }
+        return param
+      }),
     )
 
     // Update impacted models based on parameter change
@@ -674,34 +706,47 @@ export function SensitivityAnalysisDashboard() {
 
   // Handle scenario selection
   const handleScenarioSelect = (scenarioId: string) => {
+    // Add this at the beginning of handleScenarioSelect function
+    console.log("handleScenarioSelect called with scenario:", scenarioId)
+
     setSelectedScenario(scenarioId)
     const scenario = predefinedScenarios.find((s) => s.id === scenarioId)
 
     if (scenario) {
-      // Reset parameters to original values
-      setParameters((prevParams) => prevParams.map((param) => ({ ...param, changed: false })))
-
-      // Apply scenario changes with severity adjustment
-      const severityFactor = scenarioSeverity / 100
-
-      // Apply changes to parameters
+      // Apply scenario changes with proper change tracking
       setParameters((prevParams) =>
         prevParams.map((param) => {
           const change = scenario.parameterChanges.find((c) => c.parameterId === param.id)
           if (change) {
+            const originalValue = param.originalValue !== undefined ? param.originalValue : param.value
             let newValue
+            let changedAmount
+
             if (change.changeType === "absolute") {
-              newValue = param.value + change.changeValue * severityFactor
+              newValue = originalValue + change.changeValue
+              changedAmount = change.changeValue
             } else {
               // Percentage change
-              newValue = param.value * (1 + (change.changeValue * severityFactor) / 100)
+              newValue = originalValue * (1 + change.changeValue / 100)
+              changedAmount = newValue - originalValue
             }
 
             // Ensure value is within bounds
-            if (param.min !== undefined && newValue < param.min) newValue = param.min
-            if (param.max !== undefined && newValue > param.max) newValue = param.max
+            if (param.min !== undefined && newValue < param.min) {
+              newValue = param.min
+              changedAmount = newValue - originalValue
+            }
+            if (param.max !== undefined && newValue > param.max) {
+              newValue = param.max
+              changedAmount = newValue - originalValue
+            }
 
-            return { ...param, value: newValue, changed: true }
+            return {
+              ...param,
+              value: newValue,
+              changed: true,
+              changedAmount,
+            }
           }
           return param
         }),
@@ -734,19 +779,18 @@ export function SensitivityAnalysisDashboard() {
     }
   }
 
-  // Handle scenario severity change
-  const handleSeverityChange = (value: number[]) => {
-    const newSeverity = value[0]
-    setScenarioSeverity(newSeverity)
+  // Removed handleSeverityChange function
 
-    // Re-apply scenario with new severity
-    if (selectedScenario) {
-      handleScenarioSelect(selectedScenario)
-    }
-  }
-
-  // Run sensitivity analysis
+  // FIXED: Run sensitivity analysis to properly check thresholds
   const runSensitivityAnalysis = () => {
+    // Add this at the beginning of runSensitivityAnalysis function
+    console.log("runSensitivityAnalysis called with parameters:", parameters)
+
+    console.log(
+      "STARTING ANALYSIS - Current parameters:",
+      parameters.map((p) => ({ id: p.id, value: p.value, originalValue: p.originalValue, changed: p.changed })),
+    )
+
     setRunningAnalysis(true)
 
     // Simulate analysis running
@@ -772,13 +816,42 @@ export function SensitivityAnalysisDashboard() {
           if (!modelParameterChanges[param.modelId]) {
             modelParameterChanges[param.modelId] = []
           }
+
+          // Use the tracked changedAmount
+          const originalValue =
+            param.originalValue !== undefined ? param.originalValue : param.value - (param.changedAmount || 0)
+
           modelParameterChanges[param.modelId].push({
             id: param.id,
             name: param.name,
-            oldValue: param.value - (param.changedAmount || 0),
+            oldValue: originalValue,
             newValue: param.value,
-            percentChange: param.changedAmount ? (param.changedAmount / (param.value - param.changedAmount)) * 100 : 0,
+            percentChange: ((param.changedAmount || 0) / (originalValue || 1)) * 100,
+            absoluteChange: param.changedAmount || 0,
           })
+
+          // Check parameter thresholds
+          if (!ignoreParameterThresholds) {
+            const threshold = parameterThresholds.find((t) => t.id === param.id)
+            if (threshold) {
+              const absoluteChange = Math.abs(param.changedAmount || 0)
+              const percentChange = Math.abs(((param.changedAmount || 0) / (originalValue || 1)) * 100)
+
+              const thresholdExceeded = threshold.useAbsolute
+                ? absoluteChange > threshold.absoluteThreshold
+                : percentChange > threshold.percentageThreshold
+
+              if (thresholdExceeded) {
+                console.log(
+                  `Parameter threshold exceeded for ${param.name}: ${threshold.useAbsolute ? absoluteChange.toFixed(2) : percentChange.toFixed(2)}% > ${threshold.useAbsolute ? threshold.absoluteThreshold : threshold.percentageThreshold}%`,
+                )
+                results.thresholdExceeded = true
+                if (!results.rerunModels.includes(param.modelId)) {
+                  results.rerunModels.push(param.modelId)
+                }
+              }
+            }
+          }
         }
       })
 
@@ -794,31 +867,112 @@ export function SensitivityAnalysisDashboard() {
           // Generate a change based on whether the model is directly or indirectly impacted
           const directlyImpacted = parameters.some((p) => p.changed && p.modelId === metric.modelId)
 
+          // Calculate the total parameter change magnitude for this model
+          const modelParamChanges = parameters
+            .filter((p) => p.changed && p.modelId === metric.modelId)
+            .map((p) => {
+              const paramThreshold = parameterThresholds.find((t) => t.id === p.id)
+              if (paramThreshold?.useAbsolute) {
+                // For absolute changes, normalize by the threshold
+                return Math.abs(p.changedAmount || 0) / (paramThreshold.absoluteThreshold || 1)
+              } else {
+                // For percentage changes, use the percentage directly
+                const originalValue = p.originalValue !== undefined ? p.originalValue : p.value - (p.changedAmount || 0)
+                return Math.abs((p.changedAmount || 0) / (originalValue || 1)) * 100
+              }
+            })
+
+          // Calculate average parameter change magnitude
+          const avgParamChangeMagnitude =
+            modelParamChanges.length > 0
+              ? modelParamChanges.reduce((sum, val) => sum + val, 0) / modelParamChanges.length
+              : 0
+
           // Determine change factor based on the scenario and parameter changes
           let changeFactor
+          let baseChangeFactor = 0
 
+          // Base the change factor on the parameter change magnitude
+          if (directlyImpacted) {
+            baseChangeFactor = Math.min(avgParamChangeMagnitude * 0.5, 0.5) // Cap at 50%
+          } else {
+            // Indirect impacts are smaller but still significant
+            baseChangeFactor = Math.min(avgParamChangeMagnitude * 0.25, 0.3) // Cap at 30%
+          }
+
+          // Apply scenario-specific modifiers
           if (selectedScenario === "trade-war") {
             // For trade war scenario, create specific impacts based on metric type
             if (metric.name.toLowerCase().includes("growth") || metric.name.toLowerCase().includes("gdp")) {
-              changeFactor = -0.15 // Negative impact on growth
+              changeFactor = -baseChangeFactor * 2.5 // Stronger negative impact on growth
             } else if (metric.name.toLowerCase().includes("inflation") || metric.name.toLowerCase().includes("price")) {
-              changeFactor = 0.22 // Increased inflation
+              changeFactor = baseChangeFactor * 3.0 // Stronger increased inflation
             } else if (metric.name.toLowerCase().includes("export") || metric.name.toLowerCase().includes("trade")) {
-              changeFactor = -0.3 // Significant negative impact on trade
+              changeFactor = -baseChangeFactor * 4.0 // Very significant negative impact on trade
             } else if (metric.name.toLowerCase().includes("volatility") || metric.name.toLowerCase().includes("risk")) {
-              changeFactor = 0.25 // Increased volatility and risk
+              changeFactor = baseChangeFactor * 3.5 // Stronger increased volatility and risk
+            } else if (metric.modelId.includes("market")) {
+              changeFactor = -baseChangeFactor * 2.0 // Negative impact on market metrics
+            } else if (metric.modelId.includes("financial")) {
+              changeFactor = -baseChangeFactor * 1.8 // Negative impact on financial metrics
+            } else if (metric.modelId.includes("economic")) {
+              changeFactor = -baseChangeFactor * 2.2 // Negative impact on economic metrics
             } else if (directlyImpacted) {
-              changeFactor = (Math.random() * 0.2 + 0.1) * (Math.random() > 0.3 ? -1 : 1) // More likely negative
+              // Add some controlled randomness for other directly impacted metrics
+              const randomFactor = 0.8 + Math.sin(metric.name.length * 3.14159) * 0.4 // Deterministic "random" factor
+              changeFactor = -baseChangeFactor * randomFactor // Mostly negative for trade war
             } else {
-              changeFactor = (Math.random() * 0.1 + 0.05) * (Math.random() > 0.3 ? -1 : 1) // More likely negative
+              // For indirectly impacted metrics
+              const randomFactor = 0.7 + Math.cos(metric.name.length * 2.71828) * 0.3 // Different deterministic "random" factor
+              changeFactor = -baseChangeFactor * randomFactor * 0.7 // Smaller impact, mostly negative
+            }
+
+            // Ensure the change is significant enough to potentially exceed thresholds
+            if (Math.abs(changeFactor) < 0.08) {
+              changeFactor = changeFactor < 0 ? -0.08 : 0.08 // Minimum 8% change for trade war
+            }
+          } else if (selectedScenario === "financial-crisis-2008") {
+            // Special handling for financial crisis scenario
+            if (metric.name.toLowerCase().includes("growth") || metric.name.toLowerCase().includes("gdp")) {
+              changeFactor = -baseChangeFactor * 3.0 // Severe negative impact on growth
+            } else if (metric.name.toLowerCase().includes("unemployment")) {
+              changeFactor = baseChangeFactor * 4.0 // Severe increase in unemployment
+            } else if (metric.name.toLowerCase().includes("volatility") || metric.name.toLowerCase().includes("risk")) {
+              changeFactor = baseChangeFactor * 5.0 // Extreme increase in volatility/risk
+            } else if (metric.modelId.includes("market")) {
+              changeFactor = -baseChangeFactor * 3.5 // Severe negative impact on market metrics
+            } else if (metric.modelId.includes("financial")) {
+              changeFactor = -baseChangeFactor * 4.0 // Severe negative impact on financial metrics
+            } else if (metric.modelId.includes("economic")) {
+              changeFactor = -baseChangeFactor * 3.0 // Severe negative impact on economic metrics
+            } else if (directlyImpacted) {
+              const randomFactor = 0.9 + Math.sin(metric.name.length * 2.5) * 0.3
+              changeFactor = -baseChangeFactor * randomFactor * 3.0 // Mostly negative, amplified
+            } else {
+              const randomFactor = 0.8 + Math.cos(metric.name.length * 1.8) * 0.3
+              changeFactor = -baseChangeFactor * randomFactor * 2.0 // Smaller but still significant
+            }
+
+            // Ensure significant changes for financial crisis
+            if (Math.abs(changeFactor) < 0.15) {
+              changeFactor = changeFactor < 0 ? -0.15 : 0.15 // Minimum 15% change for financial crisis
             }
           } else {
-            // Default change factor logic for other scenarios
-            changeFactor = directlyImpacted
-              ? (Math.random() * 0.3 + 0.1) * (Math.random() > 0.5 ? 1 : -1)
-              : (Math.random() * 0.15 + 0.05) * (Math.random() > 0.5 ? 1 : -1)
+            // Default change factor logic for other scenarios - more balanced positive/negative
+            if (directlyImpacted) {
+              // Use a deterministic approach instead of random
+              const direction = metric.name.length % 2 === 0 ? 1 : -1
+              const variationFactor = 0.8 + Math.sin(metric.name.length * 2.5) * 0.4
+              changeFactor = baseChangeFactor * direction * variationFactor
+            } else {
+              // Smaller impact for indirectly impacted metrics
+              const direction = metric.name.length % 3 === 0 ? 1 : -1
+              const variationFactor = 0.7 + Math.cos(metric.name.length * 1.8) * 0.3
+              changeFactor = baseChangeFactor * direction * variationFactor * 0.6
+            }
           }
 
+          // Apply the change factor to get the new value
           const newValue = originalValue * (1 + changeFactor)
           const absoluteChange = newValue - originalValue
           const percentageChange = (absoluteChange / originalValue) * 100
@@ -832,6 +986,13 @@ export function SensitivityAnalysisDashboard() {
               thresholdExceeded = Math.abs(absoluteChange) > threshold.absoluteThreshold
             } else {
               thresholdExceeded = Math.abs(percentageChange) > threshold.percentageThreshold
+            }
+
+            // Log threshold check
+            if (thresholdExceeded) {
+              console.log(
+                `Output threshold exceeded for ${metric.name}: ${threshold.useAbsolute ? Math.abs(absoluteChange).toFixed(2) : Math.abs(percentageChange).toFixed(2)}% > ${threshold.useAbsolute ? threshold.absoluteThreshold : threshold.percentageThreshold}%`,
+              )
             }
           }
 
@@ -851,11 +1012,17 @@ export function SensitivityAnalysisDashboard() {
 
           // Determine if model should be approximated or rerun
           if (thresholdExceeded) {
-            results.rerunModels.push(metric.modelId)
+            if (!results.rerunModels.includes(metric.modelId)) {
+              results.rerunModels.push(metric.modelId)
+            }
           } else if (approximationEnabled) {
-            results.approximatedModels.push(metric.modelId)
+            if (!results.approximatedModels.includes(metric.modelId) && !results.rerunModels.includes(metric.modelId)) {
+              results.approximatedModels.push(metric.modelId)
+            }
           } else {
-            results.rerunModels.push(metric.modelId)
+            if (!results.rerunModels.includes(metric.modelId)) {
+              results.rerunModels.push(metric.modelId)
+            }
           }
         }
       })
@@ -881,6 +1048,9 @@ export function SensitivityAnalysisDashboard() {
             if (selectedScenario === "trade-war") {
               // More negative changes for trade war
               changeFactor = (Math.random() * 0.25 + 0.05) * (Math.random() > 0.7 ? 1 : -1)
+            } else if (selectedScenario === "financial-crisis-2008") {
+              // More extreme negative changes for financial crisis
+              changeFactor = (Math.random() * 0.4 + 0.15) * (Math.random() > 0.8 ? 1 : -1)
             } else {
               changeFactor = (Math.random() * 0.2 + 0.05) * (Math.random() > 0.5 ? 1 : -1)
             }
@@ -889,14 +1059,33 @@ export function SensitivityAnalysisDashboard() {
             const absoluteChange = newValue - baseValue
             const percentageChange = (absoluteChange / baseValue) * 100
 
+            // Check if this synthetic change exceeds thresholds
+            let thresholdExceeded = false
+            if (!ignoreOutputThresholds) {
+              const defaultThreshold = DEFAULT_OUTPUT_THRESHOLDS[modelId]
+              if (defaultThreshold) {
+                thresholdExceeded = defaultThreshold.useAbsolute
+                  ? Math.abs(absoluteChange) > defaultThreshold.absoluteThreshold
+                  : Math.abs(percentageChange) > defaultThreshold.percentageThreshold
+              } else {
+                // Default threshold check if no specific threshold exists
+                thresholdExceeded = Math.abs(percentageChange) > 15 // 15% as a default threshold
+              }
+            }
+
             // Store the synthetic metric
             results.originalValues[metricId] = baseValue
             results.newValues[metricId] = newValue
             results.changes[metricId] = {
               absolute: absoluteChange,
               percentage: percentageChange,
-              thresholdExceeded: false,
+              thresholdExceeded: thresholdExceeded,
               synthetic: true,
+            }
+
+            // Update overall threshold exceeded flag
+            if (thresholdExceeded) {
+              results.thresholdExceeded = true
             }
 
             // Add to output metrics for display
@@ -948,8 +1137,18 @@ export function SensitivityAnalysisDashboard() {
         }
       }
 
-      setAnalysisResults(results)
+      // Store current parameter values with the results to prevent them from being lost
+      setAnalysisResults({
+        ...results,
+        // Store the current parameter state to prevent loss after analysis
+        parameterState: parameters.map((p) => ({ ...p })),
+      })
       setRunningAnalysis(false)
+
+      console.log(
+        "ANALYSIS COMPLETE - Parameters at completion:",
+        parameters.map((p) => ({ id: p.id, value: p.value, originalValue: p.originalValue, changed: p.changed })),
+      )
 
       toast({
         title: "Sensitivity Analysis Complete",
@@ -1039,7 +1238,7 @@ export function SensitivityAnalysisDashboard() {
           id: metricId,
           name: metric.name,
           model: metric.modelName,
-          change: analysisResults.changes[metricId].percentage,
+          change: analysisResults.changes[metric.id].percentage,
           synthetic: metric.synthetic,
         }
       })
@@ -1167,31 +1366,326 @@ export function SensitivityAnalysisDashboard() {
     })
   }
 
-  // Initialize run options for all models when analysis results are set
+  // Find the toggleModelRunOption function and replace it with this improved version:
+
+  const toggleModelRunOption = (modelId: string) => {
+    console.log(
+      `Toggling model ${modelId} from ${modelRunOptions[modelId]} to ${modelRunOptions[modelId] === "rerun" ? "preserve" : "rerun"}`,
+    )
+
+    // Create a new options object to ensure state update
+    const newOptions = { ...modelRunOptions }
+    newOptions[modelId] = newOptions[modelId] === "rerun" ? "preserve" : "rerun"
+
+    // Update state with the new options
+    setModelRunOptions(newOptions)
+
+    // Perform a direct recalculation without the loading state
+    if (originalAnalysisResults) {
+      try {
+        // Create a deep copy of the original results to modify
+        const updatedResults = JSON.parse(JSON.stringify(originalAnalysisResults))
+
+        // Get all models that will be preserved
+        const preservedModels = Object.entries(newOptions)
+          .filter(([_, option]) => option === "preserve")
+          .map(([modelId]) => modelId)
+
+        console.log("Models to preserve:", preservedModels)
+
+        // Update metrics for preserved models to show no change
+        outputMetrics.forEach((metric) => {
+          if (preservedModels.includes(metric.modelId) && updatedResults.changes[metric.id]) {
+            // For preserved models, set changes to zero
+            updatedResults.changes[metric.id] = {
+              absolute: 0,
+              percentage: 0,
+              thresholdExceeded: false,
+              preserved: true,
+            }
+
+            // Set new value equal to original value
+            updatedResults.newValues[metric.id] = updatedResults.originalValues[metric.id]
+          }
+        })
+
+        // Update rerun and approximated models lists
+        updatedResults.rerunModels = updatedResults.rerunModels.filter((id) => !preservedModels.includes(id))
+        updatedResults.approximatedModels = updatedResults.approximatedModels.filter(
+          (id) => !preservedModels.includes(id),
+        )
+
+        // Add preserved models to a new list
+        updatedResults.preservedModels = preservedModels
+
+        // Update the analysis results directly without loading state
+        setAnalysisResults(updatedResults)
+      } catch (error) {
+        console.error("Error during toggle recalculation:", error)
+        toast({
+          title: "Calculation Error",
+          description: "There was an error updating the results. Please try again.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  // Find the recalculateChangesBasedOnRunOptions function and replace it with this simplified version:
+
+  const recalculateChangesBasedOnRunOptions = () => {
+    if (!originalAnalysisResults) {
+      console.log("Cannot recalculate: missing original analysis results")
+      setResultsReady(true) // Ensure we exit loading state even if there's an error
+      return
+    }
+
+    try {
+      console.log("Recalculating changes based on run options:", modelRunOptions)
+
+      // Create a deep copy of the original results to modify
+      const updatedResults = JSON.parse(JSON.stringify(originalAnalysisResults))
+
+      // Get all models that will be preserved
+      const preservedModels = Object.entries(modelRunOptions)
+        .filter(([_, option]) => option === "preserve")
+        .map(([modelId]) => modelId)
+
+      console.log("Models to preserve:", preservedModels)
+
+      // Update metrics for preserved models to show no change
+      outputMetrics.forEach((metric) => {
+        if (preservedModels.includes(metric.modelId) && updatedResults.changes[metric.id]) {
+          // For preserved models, set changes to zero
+          updatedResults.changes[metric.id] = {
+            absolute: 0,
+            percentage: 0,
+            thresholdExceeded: false,
+            preserved: true,
+          }
+
+          // Set new value equal to original value
+          updatedResults.newValues[metric.id] = updatedResults.originalValues[metric.id]
+        }
+      })
+
+      // Update rerun and approximated models lists
+      updatedResults.rerunModels = updatedResults.rerunModels.filter((id) => !preservedModels.includes(id))
+      updatedResults.approximatedModels = updatedResults.approximatedModels.filter(
+        (id) => !preservedModels.includes(id),
+      )
+
+      // Add preserved models to a new list
+      updatedResults.preservedModels = preservedModels
+
+      console.log("Recalculation complete, updating analysis results")
+      setAnalysisResults(updatedResults)
+    } catch (error) {
+      console.error("Error during recalculation:", error)
+    } finally {
+      // Always ensure we exit the loading state
+      setResultsReady(true)
+    }
+  }
+
+  // Find the useEffect that initializes run options and replace it with this version:
+
+  // Replace the useEffect that initializes run options with this version:
   useEffect(() => {
-    if (analysisResults) {
+    if (analysisResults && !originalAnalysisResults) {
+      console.log("Initializing model run options based on analysis results")
+
       const initialRunOptions = {}
 
-      // Set initial options - default all to "rerun"
+      // Set initial options based on threshold status
       const allModels = [
         ...new Set([...analysisResults.rerunModels, ...analysisResults.approximatedModels, ...impactedModels]),
       ]
 
       allModels.forEach((modelId) => {
-        initialRunOptions[modelId] = "rerun"
+        // Default to "rerun" for models that exceed thresholds or when thresholds are ignored
+        // Default to "preserve" for models with changes within thresholds
+        if (analysisResults.thresholdsIgnored || analysisResults.rerunModels.includes(modelId)) {
+          // If thresholds are ignored or the model exceeds thresholds, default to rerun
+          initialRunOptions[modelId] = "rerun"
+        } else {
+          // If changes are within thresholds, default to preserve
+          initialRunOptions[modelId] = "preserve"
+        }
       })
 
+      // Make sure all models in the output metrics are included
+      outputMetrics.forEach((metric) => {
+        if (metric.modelId && !initialRunOptions[metric.modelId]) {
+          initialRunOptions[metric.modelId] = "preserve"
+        }
+      })
+
+      console.log("Initial model run options:", initialRunOptions)
+
+      // Store the original analysis results for reference when recalculating
+      setOriginalAnalysisResults({ ...analysisResults })
+
+      // Update the model run options
       setModelRunOptions(initialRunOptions)
+
+      // Set results ready
+      setResultsReady(true)
+    }
+  }, [analysisResults, impactedModels, originalAnalysisResults, outputMetrics])
+
+  // Add a separate useEffect to handle the initial preservation logic
+  useEffect(() => {
+    // Only run this effect when we have model run options and original analysis results
+    // but haven't yet applied the preservation logic to the current analysis results
+    if (
+      Object.keys(modelRunOptions).length > 0 &&
+      originalAnalysisResults &&
+      analysisResults &&
+      !analysisResults.preservedModels
+    ) {
+      const preservedModels = Object.entries(modelRunOptions)
+        .filter(([_, option]) => option === "preserve")
+        .map(([modelId]) => modelId)
+
+      if (preservedModels.length > 0) {
+        try {
+          const updatedResults = JSON.parse(JSON.stringify(originalAnalysisResults))
+
+          // Update metrics for preserved models to show no change
+          outputMetrics.forEach((metric) => {
+            if (preservedModels.includes(metric.modelId) && updatedResults.changes[metric.id]) {
+              // For preserved models, set changes to zero
+              updatedResults.changes[metric.id] = {
+                absolute: 0,
+                percentage: 0,
+                thresholdExceeded: false,
+                preserved: true,
+              }
+
+              // Set new value equal to original value
+              updatedResults.newValues[metric.id] = updatedResults.originalValues[metric.id]
+            }
+          })
+
+          // Update rerun and approximated models lists
+          updatedResults.rerunModels = updatedResults.rerunModels.filter((id) => !preservedModels.includes(id))
+          updatedResults.approximatedModels = updatedResults.approximatedModels.filter(
+            (id) => !preservedModels.includes(id),
+          )
+
+          // Add preserved models to a new list
+          updatedResults.preservedModels = preservedModels
+
+          // Update the analysis results
+          setAnalysisResults(updatedResults)
+        } catch (error) {
+          console.error("Error during initial preservation:", error)
+        }
+      }
+    }
+  }, [modelRunOptions, originalAnalysisResults, analysisResults, outputMetrics])
+
+  // Add a safety timeout to ensure we never get stuck in loading state
+  // Add this after the existing useEffect hooks:
+
+  // Add this after the other useEffect hooks
+  useEffect(() => {
+    // When analysis results are set, ensure parameters maintain their values
+    if (analysisResults && analysisResults.parameterState) {
+      console.log("RESTORING PARAMETERS from analysis results")
+      setParameters((prev) => {
+        // Only update if the values are different to avoid infinite loops
+        const needsUpdate = prev.some(
+          (p, i) => analysisResults.parameterState[i] && p.value !== analysisResults.parameterState[i].value,
+        )
+
+        if (needsUpdate) {
+          console.log("Parameters need restoration - updating")
+          return analysisResults.parameterState
+        }
+        return prev
+      })
     }
   }, [analysisResults])
 
-  // Toggle a model's run option between rerun and preserve
-  const toggleModelRunOption = (modelId: string) => {
-    setModelRunOptions((prev) => ({
-      ...prev,
-      [modelId]: prev[modelId] === "rerun" ? "preserve" : "rerun",
-    }))
-  }
+  // Replace the parameter restoration useEffect with this improved version
+  useEffect(() => {
+    // When analysis results are set, ensure parameters maintain their values
+    if (analysisResults && analysisResults.parameterState) {
+      console.log("RESTORING PARAMETERS from analysis results")
+      setParameters((prev) => {
+        // Create a new array with preserved user values
+        return prev.map((param, i) => {
+          const storedParam = analysisResults.parameterState[i]
+          if (!storedParam) return param
+
+          // If the user manually changed this parameter after the analysis was run,
+          // preserve that value instead of restoring from analysis results
+          if (param.lastManualValue !== undefined) {
+            return {
+              ...storedParam,
+              value: param.lastManualValue,
+              changed: true,
+              changedAmount: param.lastManualValue - (storedParam.originalValue || 0),
+            }
+          }
+
+          // Otherwise use the stored value from analysis
+          return storedParam
+        })
+      })
+    }
+  }, [analysisResults])
+
+  // Add this useEffect to prevent parameter resets when scenarios are selected
+  useEffect(() => {
+    if (selectedScenario) {
+      // When a scenario is selected, store the resulting parameter values as lastManualValues
+      // to prevent them from being reset
+      setParameters((prev) =>
+        prev.map((param) => ({
+          ...param,
+          lastManualValue: param.value,
+        })),
+      )
+    }
+  }, [selectedScenario])
+
+  // Remove the other parameter restoration useEffect that was causing conflicts
+  // Delete this entire useEffect block:
+  // useEffect(() => {
+  //   // Only run when analysis results are first set or changed
+  //   if (analysisResults?.parameterState && !analysisResults._parametersRestored) {
+  //     // Mark that we've handled this restoration to prevent loops
+  //     analysisResults._parametersRestored = true
+  //
+  //     // Only update parameters that have actually changed
+  //     setParameters((prev) => {
+  //       const needsUpdate = prev.some((p, i) => {
+  //         const paramState = analysisResults.parameterState[i]
+  //         return paramState && Math.abs(p.value - paramState.value) > 0.0001
+  //       })
+  //
+  //       if (needsUpdate) {
+  //         return analysisResults.parameterState
+  //       }
+  //       return prev
+  //     })
+  //   }
+  // }, [analysisResults])
+
+  useEffect(() => {
+    // Safety timeout to ensure we never get stuck in loading state
+    if (!resultsReady && analysisResults) {
+      const safetyTimer = setTimeout(() => {
+        console.log("Safety timeout triggered - forcing results ready state")
+        setResultsReady(true)
+      }, 3000) // 3 second safety timeout
+
+      return () => clearTimeout(safetyTimer)
+    }
+  }, [resultsReady, analysisResults])
 
   const applySensitivityChanges = () => {
     setApplyingChanges(true)
@@ -1233,6 +1727,35 @@ export function SensitivityAnalysisDashboard() {
       }, 500)
     }, 500)
   }
+
+  // Add this targeted useEffect to handle parameter restoration after analysis
+  useEffect(() => {
+    // Only run this effect when analysis results are first set
+    if (analysisResults?.parameterState && !analysisResults._parametersRestored) {
+      // Mark that we've handled this restoration to prevent loops
+      analysisResults._parametersRestored = true
+
+      // Log for debugging
+      console.log("INITIAL PARAMETER RESTORATION - One time only")
+
+      // Only update parameters that don't have user changes
+      setParameters((prev) => {
+        return prev.map((param, i) => {
+          const storedParam = analysisResults.parameterState[i]
+          if (!storedParam) return param
+
+          // If this parameter has been manually changed by the user, preserve that value
+          if (param.changed) {
+            console.log(`Preserving user-changed parameter: ${param.id} = ${param.value}`)
+            return param
+          }
+
+          // Otherwise use the stored value from analysis
+          return storedParam
+        })
+      })
+    }
+  }, [analysisResults])
 
   return (
     <div className="space-y-6">
@@ -1284,7 +1807,17 @@ export function SensitivityAnalysisDashboard() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setParameters((prev) => prev.map((p) => ({ ...p, changed: false })))}
+                      onClick={() => {
+                        // Reset parameters to original values
+                        setParameters((prev) =>
+                          prev.map((p) => ({
+                            ...p,
+                            value: p.originalValue !== undefined ? p.originalValue : p.value,
+                            changed: false,
+                            changedAmount: 0,
+                          })),
+                        )
+                      }}
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Reset All
@@ -1304,7 +1837,12 @@ export function SensitivityAnalysisDashboard() {
                             <div className="flex items-center gap-2">
                               <h4 className="font-medium">{param.name}</h4>
                               <Badge variant="outline">{param.modelName}</Badge>
-                              {param.changed && <Badge className="bg-blue-100 text-blue-600">Modified</Badge>}
+                              {param.changed && (
+                                <Badge className="bg-blue-100 text-blue-600">
+                                  {param.changedAmount >= 0 ? "+" : ""}
+                                  {param.changedAmount?.toFixed(2)} {param.unit}
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-sm text-muted-foreground">
                               Range: {param.min} to {param.max} {param.unit}
@@ -1398,20 +1936,39 @@ export function SensitivityAnalysisDashboard() {
 
             {/* Scenarios Tab */}
             <TabsContent value="scenarios" className="p-4 border-t">
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-medium">Predefined Scenarios</h3>
-                  <Button variant="outline" size="sm" onClick={() => setSelectedScenario(null)}>
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Clear Selection
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {selectedScenario && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedScenario(null)
+                          // Reset parameters to original values
+                          setParameters((prev) =>
+                            prev.map((p) => ({
+                              ...p,
+                              value: p.originalValue !== undefined ? p.originalValue : p.value,
+                              changed: false,
+                              changedAmount: 0,
+                            })),
+                          )
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Clear Scenario
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {predefinedScenarios.map((scenario) => (
                     <Card
                       key={scenario.id}
-                      className={`cursor-pointer hover:border-blue-300 transition-colors ${
+                      className={`cursor-pointer transition-all hover:border-blue-300 ${
                         selectedScenario === scenario.id ? "border-blue-500 bg-blue-50/30" : ""
                       }`}
                       onClick={() => handleScenarioSelect(scenario.id)}
@@ -1422,36 +1979,29 @@ export function SensitivityAnalysisDashboard() {
                             {getScenarioIcon(scenario.id)}
                             <h4 className="font-medium">{scenario.name}</h4>
                           </div>
-                          <Badge className={getSeverityColor(scenario.severity)}>Severity: {scenario.severity}%</Badge>
+                          <Badge className={getSeverityColor(scenario.severity)}>
+                            {scenario.severity >= 80 ? "Severe" : scenario.severity >= 50 ? "Moderate" : "Mild"}
+                          </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground mt-2">{scenario.description}</p>
 
-                        <div className="mt-3">
-                          <h5 className="text-sm font-medium mb-1">Parameter Changes:</h5>
-                          <div className="space-y-1">
-                            {scenario.parameterChanges.map((change) => {
+                        <div className="mt-4">
+                          <h5 className="text-xs font-medium text-muted-foreground mb-2">Key Parameter Changes:</h5>
+                          <div className="flex flex-wrap gap-2">
+                            {scenario.parameterChanges.slice(0, 3).map((change) => {
                               const param = parameters.find((p) => p.id === change.parameterId)
                               return (
-                                <div key={change.parameterId} className="flex justify-between text-sm">
-                                  <span>{param?.name || change.parameterId}:</span>
-                                  <span className={change.changeValue >= 0 ? "text-green-600" : "text-red-600"}>
-                                    {change.changeValue >= 0 ? "+" : ""}
-                                    {change.changeValue}{" "}
-                                    {param?.unit ? (
-                                      <>
-                                        {change.changeValue >= 0 ? "+" : ""}
-                                        {change.changeValue} {param.unit}
-                                      </>
-                                    ) : (
-                                      <>
-                                        {change.changeValue >= 0 ? "+" : ""}
-                                        {change.changeValue}%
-                                      </>
-                                    )}
-                                  </span>
-                                </div>
+                                <Badge key={change.parameterId} variant="outline" className="bg-blue-50">
+                                  {param?.name || change.parameterId}:{" "}
+                                  {change.changeType === "absolute"
+                                    ? `${change.changeValue >= 0 ? "+" : ""}${change.changeValue}`
+                                    : `${change.changeValue >= 0 ? "+" : ""}${change.changeValue}%`}
+                                </Badge>
                               )
                             })}
+                            {scenario.parameterChanges.length > 3 && (
+                              <Badge variant="outline">+{scenario.parameterChanges.length - 3} more</Badge>
+                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -1459,29 +2009,10 @@ export function SensitivityAnalysisDashboard() {
                   ))}
                 </div>
 
-                {selectedScenario && (
-                  <div className="mt-6 border rounded-md p-4">
-                    <h4 className="font-medium mb-2">Scenario Severity Adjustment</h4>
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm">Mild</span>
-                      <Slider
-                        value={[scenarioSeverity]}
-                        min={10}
-                        max={100}
-                        step={5}
-                        onValueChange={handleSeverityChange}
-                        className="flex-1"
-                      />
-                      <span className="text-sm">Severe</span>
-                      <Badge className={getSeverityColor(scenarioSeverity)}>{scenarioSeverity}%</Badge>
-                    </div>
-                  </div>
-                )}
-
                 <div className="flex justify-end gap-2 pt-4">
                   <Button variant="outline" onClick={() => setActiveTab("parameters")}>
                     <ChevronRight className="mr-2 h-4 w-4" />
-                    Adjust Parameters
+                    Back to Parameters
                   </Button>
                   <Button onClick={runSensitivityAnalysis} disabled={runningAnalysis}>
                     {runningAnalysis ? (
@@ -1503,132 +2034,97 @@ export function SensitivityAnalysisDashboard() {
             {/* Thresholds Tab */}
             <TabsContent value="thresholds" className="p-4 border-t">
               <div className="space-y-6">
-                {/* Tabs for Parameter vs Output Thresholds */}
-                <Tabs defaultValue="parameters" className="w-full">
-                  <div className="flex justify-between items-center mb-4">
-                    <TabsList>
-                      <TabsTrigger value="parameters">Parameter Thresholds</TabsTrigger>
-                      <TabsTrigger value="outputs">Output Thresholds</TabsTrigger>
-                    </TabsList>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                      >
-                        {showAdvancedSettings ? "Hide" : "Show"} Advanced Settings
-                        {showAdvancedSettings ? (
-                          <ChevronDown className="ml-2 h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="ml-2 h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-medium">Sensitivity Thresholds</h3>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={saveCurrentThresholds}>
+                      Save Thresholds
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={restoreSavedThresholds} disabled={!savedThresholds}>
+                      Restore Saved
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={resetToDefaultThresholds}>
+                      Reset to Default
+                    </Button>
                   </div>
+                </div>
 
-                  {/* Parameter Thresholds Content */}
-                  <TabsContent value="parameters" className="mt-0">
-                    <div className="border rounded-md p-4 mb-4 bg-muted/20">
-                      <h3 className="text-md font-medium mb-3">Threshold Management</h3>
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <Label htmlFor="ignore-param-thresholds" className="text-sm">
-                              Ignore Parameter Thresholds
-                            </Label>
-                            <Switch
-                              id="ignore-param-thresholds"
-                              checked={ignoreParameterThresholds}
-                              onCheckedChange={setIgnoreParameterThresholds}
-                            />
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <Label htmlFor="ignore-output-thresholds" className="text-sm">
-                              Ignore Output Thresholds
-                            </Label>
-                            <Switch
-                              id="ignore-output-thresholds"
-                              checked={ignoreOutputThresholds}
-                              onCheckedChange={setIgnoreOutputThresholds}
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-col space-y-2">
-                          <div className="grid grid-cols-3 gap-2">
-                            <Button size="sm" variant="outline" onClick={saveCurrentThresholds}>
-                              Save Current
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={restoreSavedThresholds}
-                              disabled={!savedThresholds}
-                            >
-                              Restore Saved
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={resetToDefaultThresholds}>
-                              Reset to Defaults
-                            </Button>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setIgnoreParameterThresholds(true)
-                              setIgnoreOutputThresholds(true)
-                            }}
-                          >
-                            Ignore All Thresholds
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-muted/30 p-3 rounded-md mb-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">Ignore Parameter Thresholds</h4>
                       <p className="text-sm text-muted-foreground">
-                        Parameter thresholds determine when a change to an input parameter is considered significant.
-                        Changes below these thresholds may be approximated rather than fully recalculated.
+                        Run all models regardless of parameter change magnitude
                       </p>
                     </div>
+                    <Switch checked={ignoreParameterThresholds} onCheckedChange={setIgnoreParameterThresholds} />
+                  </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">Ignore Output Thresholds</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Run all models regardless of output change magnitude
+                      </p>
+                    </div>
+                    <Switch checked={ignoreOutputThresholds} onCheckedChange={setIgnoreOutputThresholds} />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">Enable Linear Approximation</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Use linear approximation for models with small changes
+                      </p>
+                    </div>
+                    <Switch checked={approximationEnabled} onCheckedChange={setApproximationEnabled} />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h3 className="text-lg font-medium mb-4">Parameter Thresholds</h3>
+                  <ScrollArea className="h-[200px] pr-4">
+                    <div className="space-y-4">
                       {parameterThresholds.map((threshold) => (
-                        <Card key={threshold.id} className="overflow-hidden">
-                          <CardHeader className="bg-muted/30 py-3">
-                            <CardTitle className="text-base flex justify-between items-center">
-                              <span>{threshold.name}</span>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  variant={threshold.useAbsolute ? "default" : "outline"}
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => handleParameterThresholdChange(threshold.id, "useAbsolute", true)}
-                                >
-                                  <Hash className="h-3 w-3 mr-1" />
-                                  Absolute
-                                </Button>
-                                <Button
-                                  variant={!threshold.useAbsolute ? "default" : "outline"}
-                                  size="sm"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => handleParameterThresholdChange(threshold.id, "useAbsolute", false)}
-                                >
-                                  <Percent className="h-3 w-3 mr-1" />
-                                  Percentage
-                                </Button>
-                              </div>
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent className="p-4">
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <Label
-                                  htmlFor={`abs-${threshold.id}`}
-                                  className={`text-sm mb-1 block ${threshold.useAbsolute ? "font-medium" : ""}`}
-                                >
-                                  Absolute Threshold {threshold.unit && `(${threshold.unit})`}
-                                </Label>
+                        <div key={threshold.id} className="border rounded-md p-4 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h4 className="font-medium">{threshold.name}</h4>
+                              <p className="text-sm text-muted-foreground">
+                                Current threshold:{" "}
+                                {threshold.useAbsolute
+                                  ? `${threshold.absoluteThreshold} ${threshold.unit}`
+                                  : `${threshold.percentageThreshold}%`}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant={threshold.useAbsolute ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => handleParameterThresholdChange(threshold.id, "useAbsolute", true)}
+                              >
+                                Absolute
+                              </Button>
+                              <Button
+                                variant={!threshold.useAbsolute ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => handleParameterThresholdChange(threshold.id, "useAbsolute", false)}
+                              >
+                                Percentage
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor={`absolute-${threshold.id}`} className="text-sm">
+                                Absolute Threshold ({threshold.unit})
+                              </Label>
+                              <div className="flex items-center mt-1">
                                 <Input
-                                  id={`abs-${threshold.id}`}
+                                  id={`absolute-${threshold.id}`}
                                   type="number"
                                   value={threshold.absoluteThreshold}
                                   onChange={(e) =>
@@ -1640,18 +2136,17 @@ export function SensitivityAnalysisDashboard() {
                                   }
                                   step={0.1}
                                   min={0}
-                                  className={threshold.useAbsolute ? "border-primary" : ""}
+                                  className={threshold.useAbsolute ? "border-blue-300" : ""}
                                 />
                               </div>
-                              <div>
-                                <Label
-                                  htmlFor={`pct-${threshold.id}`}
-                                  className={`text-sm mb-1 block ${!threshold.useAbsolute ? "font-medium" : ""}`}
-                                >
-                                  Percentage Threshold (%)
-                                </Label>
+                            </div>
+                            <div>
+                              <Label htmlFor={`percentage-${threshold.id}`} className="text-sm">
+                                Percentage Threshold (%)
+                              </Label>
+                              <div className="flex items-center mt-1">
                                 <Input
-                                  id={`pct-${threshold.id}`}
+                                  id={`percentage-${threshold.id}`}
                                   type="number"
                                   value={threshold.percentageThreshold}
                                   onChange={(e) =>
@@ -1663,251 +2158,104 @@ export function SensitivityAnalysisDashboard() {
                                   }
                                   step={1}
                                   min={0}
-                                  className={!threshold.useAbsolute ? "border-primary" : ""}
+                                  className={!threshold.useAbsolute ? "border-blue-300" : ""}
                                 />
                               </div>
                             </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </TabsContent>
-
-                  {/* Output Thresholds Content */}
-                  <TabsContent value="outputs" className="mt-0">
-                    <div className="bg-muted/30 p-3 rounded-md mb-4">
-                      <p className="text-sm text-muted-foreground">
-                        Output metric thresholds determine when a change to a model output is considered significant.
-                        Models with output changes exceeding these thresholds will be fully recalculated.
-                      </p>
-                    </div>
-
-                    {/* Group by model */}
-                    {(() => {
-                      // Group thresholds by model
-                      const modelGroups = {}
-                      outputThresholds.forEach((threshold) => {
-                        if (!modelGroups[threshold.modelId]) {
-                          modelGroups[threshold.modelId] = {
-                            modelName: threshold.modelName,
-                            thresholds: [],
-                          }
-                        }
-                        modelGroups[threshold.modelId].thresholds.push(threshold)
-                      })
-
-                      return Object.entries(modelGroups).map(([modelId, group]) => (
-                        <div key={modelId} className="mb-6">
-                          <h3 className="text-md font-medium mb-3 flex items-center">
-                            <div className="w-2 h-2 rounded-full bg-primary mr-2"></div>
-                            {group.modelName}
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {group.thresholds.map((threshold) => (
-                              <Card key={threshold.id} className="overflow-hidden">
-                                <CardHeader className="bg-muted/30 py-3">
-                                  <CardTitle className="text-base flex justify-between items-center">
-                                    <span>{threshold.metricName}</span>
-                                    <div className="flex items-center gap-1">
-                                      <Button
-                                        variant={threshold.useAbsolute ? "default" : "outline"}
-                                        size="sm"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() => handleOutputThresholdChange(threshold.id, "useAbsolute", true)}
-                                      >
-                                        <Hash className="h-3 w-3 mr-1" />
-                                        Absolute
-                                      </Button>
-                                      <Button
-                                        variant={!threshold.useAbsolute ? "default" : "outline"}
-                                        size="sm"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={() => handleOutputThresholdChange(threshold.id, "useAbsolute", false)}
-                                      >
-                                        <Percent className="h-3 w-3 mr-1" />
-                                        Percentage
-                                      </Button>
-                                    </div>
-                                  </CardTitle>
-                                </CardHeader>
-                                <CardContent className="p-4">
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <Label
-                                        htmlFor={`abs-out-${threshold.id}`}
-                                        className={`text-sm mb-1 block ${threshold.useAbsolute ? "font-medium" : ""}`}
-                                      >
-                                        Absolute Threshold {threshold.unit && `(${threshold.unit})`}
-                                      </Label>
-                                      <Input
-                                        id={`abs-out-${threshold.id}`}
-                                        type="number"
-                                        value={threshold.absoluteThreshold}
-                                        onChange={(e) =>
-                                          handleOutputThresholdChange(
-                                            threshold.id,
-                                            "absoluteThreshold",
-                                            Number.parseFloat(e.target.value),
-                                          )
-                                        }
-                                        step={0.1}
-                                        min={0}
-                                        className={threshold.useAbsolute ? "border-primary" : ""}
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label
-                                        htmlFor={`pct-out-${threshold.id}`}
-                                        className={`text-sm mb-1 block ${!threshold.useAbsolute ? "font-medium" : ""}`}
-                                      >
-                                        Percentage Threshold (%)
-                                      </Label>
-                                      <Input
-                                        id={`pct-out-${threshold.id}`}
-                                        type="number"
-                                        value={threshold.percentageThreshold}
-                                        onChange={(e) =>
-                                          handleOutputThresholdChange(
-                                            threshold.id,
-                                            "percentageThreshold",
-                                            Number.parseFloat(e.target.value),
-                                          )
-                                        }
-                                        step={1}
-                                        min={0}
-                                        className={!threshold.useAbsolute ? "border-primary" : ""}
-                                      />
-                                    </div>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))}
                           </div>
                         </div>
-                      ))
-                    })()}
-                  </TabsContent>
-                </Tabs>
-
-                <div className="mt-6">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-md">Default Threshold Values</CardTitle>
-                      <CardDescription>Reference for original threshold settings</CardDescription>
-                    </CardHeader>
-                    <CardContent className="p-4">
-                      <Tabs defaultValue="param-defaults">
-                        <TabsList className="mb-4">
-                          <TabsTrigger value="param-defaults">Parameter Defaults</TabsTrigger>
-                          <TabsTrigger value="output-defaults">Output Defaults</TabsTrigger>
-                        </TabsList>
-
-                        <TabsContent value="param-defaults">
-                          <div className="border rounded-md overflow-hidden">
-                            <table className="w-full">
-                              <thead className="bg-muted">
-                                <tr>
-                                  <th className="text-left p-2 text-xs font-medium">Parameter</th>
-                                  <th className="text-left p-2 text-xs font-medium">Absolute Threshold</th>
-                                  <th className="text-left p-2 text-xs font-medium">Percentage Threshold</th>
-                                  <th className="text-left p-2 text-xs font-medium">Default Type</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {Object.entries(DEFAULT_PARAMETER_THRESHOLDS).map(([id, defaults]) => {
-                                  const param = parameters.find((p) => p.id === id)
-                                  return (
-                                    <tr key={id} className="border-t">
-                                      <td className="p-2 text-sm font-medium">{param?.name || id}</td>
-                                      <td className="p-2 text-sm">{defaults.absoluteThreshold}</td>
-                                      <td className="p-2 text-sm">{defaults.percentageThreshold}%</td>
-                                      <td className="p-2 text-sm">
-                                        {defaults.useAbsolute ? "Absolute" : "Percentage"}
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </TabsContent>
-
-                        <TabsContent value="output-defaults">
-                          <div className="border rounded-md overflow-hidden">
-                            <table className="w-full">
-                              <thead className="bg-muted">
-                                <tr>
-                                  <th className="text-left p-2 text-xs font-medium">Model</th>
-                                  <th className="text-left p-2 text-xs font-medium">Absolute Threshold</th>
-                                  <th className="text-left p-2 text-xs font-medium">Percentage Threshold</th>
-                                  <th className="text-left p-2 text-xs font-medium">Default Type</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {Object.entries(DEFAULT_OUTPUT_THRESHOLDS).map(([modelId, defaults]) => {
-                                  const model = modelGroups.find((m) => m.id === modelId)
-                                  return (
-                                    <tr key={modelId} className="border-t">
-                                      <td className="p-2 text-sm font-medium">{model?.name || modelId}</td>
-                                      <td className="p-2 text-sm">{defaults.absoluteThreshold}</td>
-                                      <td className="p-2 text-sm">{defaults.percentageThreshold}%</td>
-                                      <td className="p-2 text-sm">
-                                        {defaults.useAbsolute ? "Absolute" : "Percentage"}
-                                      </td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </TabsContent>
-                      </Tabs>
-                    </CardContent>
-                  </Card>
+                      ))}
+                    </div>
+                  </ScrollArea>
                 </div>
 
-                {showAdvancedSettings && (
-                  <>
-                    <Separator />
-                    <div>
-                      <h3 className="text-lg font-medium mb-4">Advanced Settings</h3>
-                      <Card>
-                        <CardContent className="p-4 space-y-4">
-                          <div className="flex items-center justify-between">
+                <Separator />
+
+                <div>
+                  <h3 className="text-lg font-medium mb-4">Output Metric Thresholds</h3>
+                  <ScrollArea className="h-[200px] pr-4">
+                    <div className="space-y-4">
+                      {outputThresholds.map((threshold) => (
+                        <div key={threshold.id} className="border rounded-md p-4 space-y-3">
+                          <div className="flex justify-between items-center">
                             <div>
-                              <h4 className="font-medium">Enable Approximation</h4>
+                              <h4 className="font-medium">{threshold.metricName}</h4>
                               <p className="text-sm text-muted-foreground">
-                                Use linear approximation for small changes below threshold
+                                Model: {threshold.modelName} | Current threshold:{" "}
+                                {threshold.useAbsolute
+                                  ? `${threshold.absoluteThreshold} ${threshold.unit}`
+                                  : `${threshold.percentageThreshold}%`}
                               </p>
                             </div>
-                            <Switch checked={approximationEnabled} onCheckedChange={setApproximationEnabled} />
-                          </div>
-
-                          <Separator />
-
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="font-medium">Comparison Mode</h4>
-                              <p className="text-sm text-muted-foreground">
-                                How to display comparison between original and new values
-                              </p>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant={threshold.useAbsolute ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => handleOutputThresholdChange(threshold.id, "useAbsolute", true)}
+                              >
+                                Absolute
+                              </Button>
+                              <Button
+                                variant={!threshold.useAbsolute ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => handleOutputThresholdChange(threshold.id, "useAbsolute", false)}
+                              >
+                                Percentage
+                              </Button>
                             </div>
-                            <Select value={comparisonMode} onValueChange={(value) => setComparisonMode(value as any)}>
-                              <SelectTrigger className="w-[180px]">
-                                <SelectValue placeholder="Select mode" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="side-by-side">Side by Side</SelectItem>
-                                <SelectItem value="overlay">Overlay</SelectItem>
-                                <SelectItem value="difference">Difference</SelectItem>
-                              </SelectContent>
-                            </Select>
                           </div>
-                        </CardContent>
-                      </Card>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor={`absolute-${threshold.id}`} className="text-sm">
+                                Absolute Threshold ({threshold.unit})
+                              </Label>
+                              <div className="flex items-center mt-1">
+                                <Input
+                                  id={`absolute-${threshold.id}`}
+                                  type="number"
+                                  value={threshold.absoluteThreshold}
+                                  onChange={(e) =>
+                                    handleOutputThresholdChange(
+                                      threshold.id,
+                                      "absoluteThreshold",
+                                      Number.parseFloat(e.target.value),
+                                    )
+                                  }
+                                  step={0.1}
+                                  min={0}
+                                  className={threshold.useAbsolute ? "border-blue-300" : ""}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <Label htmlFor={`percentage-${threshold.id}`} className="text-sm">
+                                Percentage Threshold (%)
+                              </Label>
+                              <div className="flex items-center mt-1">
+                                <Input
+                                  id={`percentage-${threshold.id}`}
+                                  type="number"
+                                  value={threshold.percentageThreshold}
+                                  onChange={(e) =>
+                                    handleOutputThresholdChange(
+                                      threshold.id,
+                                      "percentageThreshold",
+                                      Number.parseFloat(e.target.value),
+                                    )
+                                  }
+                                  step={1}
+                                  min={0}
+                                  className={!threshold.useAbsolute ? "border-blue-300" : ""}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </>
-                )}
+                  </ScrollArea>
+                </div>
 
                 <div className="flex justify-end gap-2 pt-4">
                   <Button variant="outline" onClick={() => setActiveTab("parameters")}>
@@ -1938,16 +2286,6 @@ export function SensitivityAnalysisDashboard() {
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-medium">Sensitivity Analysis Results</h3>
                     <div className="flex items-center gap-2">
-                      <Select value={comparisonMode} onValueChange={(value) => setComparisonMode(value as any)}>
-                        <SelectTrigger className="w-[180px]">
-                          <SelectValue placeholder="Select mode" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="side-by-side">Side by Side</SelectItem>
-                          <SelectItem value="overlay">Overlay</SelectItem>
-                          <SelectItem value="difference">Difference</SelectItem>
-                        </SelectContent>
-                      </Select>
                       <Button variant="outline" size="sm" onClick={() => setActiveTab("parameters")}>
                         <RefreshCw className="h-4 w-4 mr-2" />
                         New Analysis
@@ -1961,12 +2299,7 @@ export function SensitivityAnalysisDashboard() {
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                           <h4 className="font-medium">Threshold Status</h4>
-                          {analysisResults.thresholdsIgnored ? (
-                            <Badge className="bg-purple-100 text-purple-600">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              Thresholds Ignored
-                            </Badge>
-                          ) : analysisResults.thresholdExceeded ? (
+                          {analysisResults.thresholdExceeded ? (
                             <Badge className="bg-red-100 text-red-600">
                               <AlertCircle className="h-3 w-3 mr-1" />
                               Thresholds Exceeded
@@ -1979,10 +2312,10 @@ export function SensitivityAnalysisDashboard() {
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-2">
-                          {analysisResults.thresholdsIgnored
-                            ? "Threshold checks were ignored for this analysis. All models will be processed according to your approximation settings."
-                            : analysisResults.thresholdExceeded
-                              ? "Some changes exceed defined thresholds and require full recalculation"
+                          {analysisResults.thresholdExceeded
+                            ? "Some changes exceed defined thresholds and require full recalculation"
+                            : analysisResults.thresholdsIgnored
+                              ? "Threshold checks were ignored for this analysis"
                               : "All changes are within defined thresholds"}
                         </p>
                       </CardContent>
@@ -2003,6 +2336,9 @@ export function SensitivityAnalysisDashboard() {
                               </Badge>
                             )
                           })}
+                          {analysisResults.rerunModels.length === 0 && (
+                            <p className="text-sm text-muted-foreground">No models need to be rerun</p>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -2010,7 +2346,9 @@ export function SensitivityAnalysisDashboard() {
                     <Card>
                       <CardContent className="p-4">
                         <div className="flex items-center justify-between">
-                          <h4 className="font-medium">Models to Approximate</h4>
+                          <h4 className="font-medium">
+                            {approximationEnabled ? "Models to Approximate" : "Models to Preserve"}
+                          </h4>
                           <Badge variant="outline">{analysisResults.approximatedModels.length}</Badge>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1">
@@ -2022,56 +2360,79 @@ export function SensitivityAnalysisDashboard() {
                               </Badge>
                             )
                           })}
+                          {analysisResults.approximatedModels.length === 0 && (
+                            <p className="text-sm text-muted-foreground">No models will be approximated</p>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
                   </div>
 
+                  {/* Model Run Options */}
+                  {resultsReady && Object.keys(modelRunOptions).length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-md">Model Run Options</CardTitle>
+                        <CardDescription>
+                          Choose which models to rerun with new parameters vs. preserve current results
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          {Object.entries(modelRunOptions).map(([modelId, option]) => {
+                            const model = getModelById(modelId)
+                            return (
+                              <div key={modelId} className="flex items-center justify-between border rounded-md p-3">
+                                <div>
+                                  <h4 className="font-medium">{model?.name || modelId}</h4>
+                                  <p className="text-sm text-muted-foreground">
+                                    {option === "rerun"
+                                      ? "Will be rerun with new parameters"
+                                      : "Current results will be preserved"}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge
+                                    className={
+                                      option === "rerun" ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"
+                                    }
+                                  >
+                                    {option === "rerun" ? "Rerun" : "Preserve"}
+                                  </Badge>
+                                  <Button variant="outline" size="sm" onClick={() => toggleModelRunOption(modelId)}>
+                                    Toggle
+                                  </Button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Impact Visualization */}
                   <Card>
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-md">Impact on Key Metrics</CardTitle>
+                      <CardTitle className="text-md">Impact on Outputs</CardTitle>
                       <CardDescription>Percentage change in output metrics</CardDescription>
                     </CardHeader>
-                    <CardContent className="h-[400px] pt-2">
-                      {generateImpactChartData().length > 0 ? (
-                        <BarChart
-                          data={generateImpactChartData()}
-                          index="name"
-                          categories={["value"]}
-                          colors={["blue"]}
-                          valueFormatter={(value) => `${value.toFixed(2)}%`}
-                          layout="vertical"
-                          className="h-[400px]"
-                        />
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground">
-                          No significant impacts to display
-                        </div>
-                      )}
+                    <CardContent className="h-[200px]">
+                      <BarChart
+                        data={generateImpactChartData()}
+                        index="name"
+                        categories={["value"]}
+                        colors={["blue"]}
+                        valueFormatter={(value) => `${value.toFixed(2)}%`}
+                        showLegend={false}
+                      />
                     </CardContent>
                   </Card>
 
                   {/* Detailed Changes Table */}
                   <Card>
                     <CardHeader className="pb-2">
-                      <CardTitle className="text-md flex justify-between items-center">
-                        <span>Detailed Changes</span>
-                        {getRunState() !== "IDLE" && (
-                          <Badge variant="outline" className="bg-blue-50">
-                            Post-Model Analysis
-                          </Badge>
-                        )}
-                      </CardTitle>
-                      <CardDescription className="flex justify-between">
-                        <span>Changes to output metrics by model</span>
-                        {getRunState() !== "IDLE" && (
-                          <div className="text-sm flex items-center">
-                            <Info className="h-4 w-4 mr-1 text-muted-foreground" />
-                            <span>Choose which models to rerun or preserve current values</span>
-                          </div>
-                        )}
-                      </CardDescription>
+                      <CardTitle className="text-md">Detailed Changes</CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
                       <div className="border rounded-md overflow-hidden">
@@ -2084,30 +2445,29 @@ export function SensitivityAnalysisDashboard() {
                               <th className="text-left p-2 text-xs font-medium">New Value</th>
                               <th className="text-left p-2 text-xs font-medium">Change</th>
                               <th className="text-left p-2 text-xs font-medium">Status</th>
-                              {getRunState() !== "IDLE" && (
-                                <th className="text-left p-2 text-xs font-medium">Run Option</th>
-                              )}
                             </tr>
                           </thead>
                           <tbody>
-                            {outputMetrics.map((metric) => {
-                              const change = analysisResults.changes[metric.id]
+                            {Object.keys(analysisResults.changes).map((metricId) => {
+                              const change = analysisResults.changes[metricId]
                               if (!change) return null
 
-                              // Group by model for toggling run options
-                              const modelId = metric.modelId
-                              const model = getModelById(modelId)
-                              const runOption = modelRunOptions[modelId] || "rerun"
+                              // Find the metric in outputMetrics
+                              const metric = outputMetrics.find((m) => m.id === metricId)
+                              if (!metric) return null
+
+                              const originalValue = analysisResults.originalValues[metricId]
+                              const newValue = analysisResults.newValues[metricId]
 
                               return (
-                                <tr key={metric.id} className="border-t">
+                                <tr key={metricId} className="border-t">
                                   <td className="p-2 text-sm font-medium">{metric.name}</td>
                                   <td className="p-2 text-sm">{metric.modelName}</td>
                                   <td className="p-2 text-sm">
-                                    {analysisResults.originalValues[metric.id]?.toFixed(2)} {metric.unit}
+                                    {originalValue?.toFixed(2)} {metric.unit}
                                   </td>
                                   <td className="p-2 text-sm">
-                                    {analysisResults.newValues[metric.id]?.toFixed(2)} {metric.unit}
+                                    {newValue?.toFixed(2)} {metric.unit}
                                   </td>
                                   <td className="p-2 text-sm">
                                     <span className={change.absolute >= 0 ? "text-green-600" : "text-red-600"}>
@@ -2117,40 +2477,14 @@ export function SensitivityAnalysisDashboard() {
                                     </span>
                                   </td>
                                   <td className="p-2 text-sm">
-                                    {analysisResults.thresholdsIgnored ? (
-                                      <Badge className="bg-purple-100 text-purple-600">Checks Ignored</Badge>
+                                    {change.preserved ? (
+                                      <Badge className="bg-blue-100 text-blue-600">Preserved</Badge>
                                     ) : change.thresholdExceeded ? (
                                       <Badge className="bg-red-100 text-red-600">Threshold Exceeded</Badge>
                                     ) : (
                                       <Badge className="bg-green-100 text-green-600">Within Threshold</Badge>
                                     )}
                                   </td>
-                                  {getRunState() !== "IDLE" && (
-                                    <td className="p-2 text-sm">
-                                      {/* Only show the toggle once per model */}
-                                      {outputMetrics.findIndex((m) => m.modelId === modelId) ===
-                                        outputMetrics.indexOf(metric) && (
-                                        <Button
-                                          size="sm"
-                                          variant={runOption === "rerun" ? "default" : "outline"}
-                                          className={`text-xs ${runOption === "preserve" ? "border-blue-500 text-blue-600" : ""}`}
-                                          onClick={() => toggleModelRunOption(modelId)}
-                                        >
-                                          {runOption === "rerun" ? (
-                                            <>
-                                              <RefreshCw className="h-3 w-3 mr-1" />
-                                              Rerun
-                                            </>
-                                          ) : (
-                                            <>
-                                              <Snowflake className="h-3 w-3 mr-1" />
-                                              Preserve
-                                            </>
-                                          )}
-                                        </Button>
-                                      )}
-                                    </td>
-                                  )}
                                 </tr>
                               )
                             })}
@@ -2160,12 +2494,24 @@ export function SensitivityAnalysisDashboard() {
                     </CardContent>
                   </Card>
 
+                  {/* Apply Changes Button */}
                   <div className="flex justify-end gap-2 pt-4">
-                    <Button variant="outline" onClick={() => setActiveTab("parameters")}>
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      New Analysis
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setActiveTab("parameters")
+                        setAnalysisResults(null)
+                        setOriginalAnalysisResults(null)
+                        setModelRunOptions({})
+                        setResultsReady(false)
+                      }}
+                    >
+                      Discard Changes
                     </Button>
-                    <Button onClick={applySensitivityChanges} disabled={applyingChanges}>
+                    <Button
+                      onClick={applySensitivityChanges}
+                      disabled={applyingChanges || getRunState() === "FINALIZED"}
+                    >
                       {applyingChanges ? (
                         <>
                           <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -2174,9 +2520,7 @@ export function SensitivityAnalysisDashboard() {
                       ) : (
                         <>
                           <Play className="mr-2 h-4 w-4" />
-                          {getRunState() !== "IDLE"
-                            ? `Apply Changes (${Object.values(modelRunOptions).filter((o) => o === "rerun").length} rerun, ${Object.values(modelRunOptions).filter((o) => o === "preserve").length} preserved)`
-                            : "Apply Changes & Run Models"}
+                          Apply Changes & Run Models
                         </>
                       )}
                     </Button>

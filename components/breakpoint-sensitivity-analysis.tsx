@@ -66,13 +66,30 @@ export function BreakpointSensitivityAnalysis({ modelId, onContinue, onClose }) 
 
   // Handle parameter value change
   const handleParameterChange = (id: string, value: number) => {
+    console.log("BreakpointSensitivityAnalysis - handleParameterChange called for parameter:", id, "with value:", value)
+
     setParameters((prevParams) =>
-      prevParams.map((param) => (param.id === id ? { ...param, value, changed: true } : param)),
+      prevParams.map((param) =>
+        param.id === id
+          ? {
+              ...param,
+              value,
+              changed: true,
+              lastManualValue: value, // Track user-set values
+            }
+          : param,
+      ),
     )
   }
 
   // Run sensitivity analysis
   const runSensitivityAnalysis = () => {
+    console.log(
+      "BREAKPOINT ANALYSIS - Current parameters:",
+      parameters.map((p) => ({ id: p.id, value: p.value, originalValue: p.originalValue, changed: p.changed })),
+    )
+    console.log("BreakpointSensitivityAnalysis - runSensitivityAnalysis called with parameters:", parameters)
+
     setRunningAnalysis(true)
 
     // Simulate analysis running
@@ -143,7 +160,12 @@ export function BreakpointSensitivityAnalysis({ modelId, onContinue, onClose }) 
         }
       })
 
-      setAnalysisResults(results)
+      // Store current parameter values with the results to prevent them from being lost
+      setAnalysisResults({
+        ...results,
+        // Store the current parameter state to prevent loss after analysis
+        parameterState: parameters.map((p) => ({ ...p })),
+      })
       setRunningAnalysis(false)
 
       toast({
@@ -200,6 +222,33 @@ export function BreakpointSensitivityAnalysis({ modelId, onContinue, onClose }) 
       })
       .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
   }
+
+  // Add this after the other useEffect hooks
+  useEffect(() => {
+    // When analysis results are set, ensure parameters maintain their values
+    if (analysisResults?.parameterState) {
+      setParameters((prev) => {
+        // Create a new array with preserved user values
+        return prev.map((param, i) => {
+          const storedParam = analysisResults.parameterState[i]
+          if (!storedParam) return param
+
+          // If the user manually changed this parameter after the analysis was run,
+          // preserve that value instead of restoring from analysis results
+          if (param.lastManualValue !== undefined) {
+            return {
+              ...storedParam,
+              value: param.lastManualValue,
+              changed: true,
+            }
+          }
+
+          // Otherwise use the stored value from analysis
+          return storedParam
+        })
+      })
+    }
+  }, [analysisResults])
 
   return (
     <Card className="w-full">
